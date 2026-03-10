@@ -1,0 +1,53 @@
+---
+name: kfc
+description: "当用户说“kfc”、“KFC”、“肯德基”或“肯德基文案”时触发。调用 KFC 文案接口，返回其中的文案内容。"
+argument-hint: "无需参数，直接调用即可"
+---
+
+# KFC Skill
+
+## 描述
+
+这是一个用于获取肯德基疯狂星期四文案的技能。
+
+当用户提到 `kfc`、`KFC`、`肯德基` 或 `肯德基文案` 时，调用接口获取最新文案，并把接口返回的文案直接回复给用户。
+
+这个仓库里额外提供了一个可执行脚本 [skills/kfc/kfc.py](/Users/zuihoudeqingyu/Git/wechat/wechat-robot-skills/skills/kfc/kfc.py)，方便宿主机器人直接调用。
+
+## 触发条件
+
+- 用户说「kfc」
+- 用户说「KFC」
+- 用户说「肯德基」
+- 用户说「肯德基文案」
+
+## 接口信息
+
+- 请求地址：`https://api.pearktrue.cn/api/kfc?type=json`
+- 请求方式：`GET`
+- 本地脚本：`skills/kfc/kfc.py`
+- 返回示例：
+
+```json
+{
+  "code": 200,
+  "msg": "获取成功",
+  "text": "14看着不香，果然还是13更香，iPhone14真是更新了个寂寞！......今天肯德基疯狂星期四，谁请我吃？",
+  "api_source": "官方API网:https://api.pearktrue.cn/"
+}
+```
+
+- 关键字段：`text`，表示需要返回给用户的肯德基文案内容。
+
+## 执行步骤
+
+1. 当用户输入 `kfc`、`KFC`、`肯德基` 或 `肯德基文案` 时触发该技能。
+2. 优先执行本地脚本 `python skills/kfc/kfc.py`。
+3. 脚本内部发送 `GET` 请求到 `https://api.pearktrue.cn/api/kfc?type=json`。
+4. 脚本解析返回的 JSON，并输出 `text` 字段。
+5. 如果接口请求失败、返回格式异常，或没有拿到 `text`，脚本输出：`今天的肯德基文案暂时没拿到，等我再去问问。`
+
+## 回复要求
+
+- 只返回接口中的 `text` 文案内容，不要额外添加解释。
+- 当接口异常时，使用固定兜底文案回复。
