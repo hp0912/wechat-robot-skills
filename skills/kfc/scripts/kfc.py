@@ -22,7 +22,7 @@ def fetch_kfc_copy() -> str:
     text = payload.get("text")
     if isinstance(text, str) and text.strip():
         # 该 API 偶尔返回双重转义的换行符（字面量 \n），在此统一还原
-        return text.replace("\\n", "\n")
+        return "<wechat-robot-text>" + text.replace("\\n", "\n") + "</wechat-robot-text>"
     return FALLBACK_TEXT
 
 
