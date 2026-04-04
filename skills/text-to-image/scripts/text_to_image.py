@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import re
@@ -301,15 +302,35 @@ DOUBAO_MODELS = {"doubao-seedream-4.5", "doubao-seedream-4.0", "doubao-seedream-
 ZIMAGE_MODELS = {"Z-Image", "Z-Image-Turbo", "Qwen-Image-Edit-2511"}
 
 
+def _parse_cli_params(argv: list[str]) -> dict[str, str]:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--prompt", default="")
+    parser.add_argument("--model", default="")
+    parser.add_argument("--negative_prompt", default="")
+    parser.add_argument("--ratio", default="")
+    parser.add_argument("--resolution", default="")
+
+    namespace, unknown = parser.parse_known_args(argv)
+    if unknown:
+        raise ValueError(f"存在不支持的参数: {' '.join(unknown)}")
+
+    return {
+        "prompt": namespace.prompt,
+        "model": namespace.model,
+        "negative_prompt": namespace.negative_prompt,
+        "ratio": namespace.ratio,
+        "resolution": namespace.resolution,
+    }
+
+
 def main() -> int:
-    # Parse input params from first CLI argument
     if len(sys.argv) < 2:
         sys.stdout.write("缺少输入参数\n")
         return 1
 
     try:
-        params = json.loads(sys.argv[1])
-    except json.JSONDecodeError as exc:
+        params = _parse_cli_params(sys.argv[1:])
+    except ValueError as exc:
         sys.stdout.write(f"参数格式错误: {exc}\n")
         return 1
 
