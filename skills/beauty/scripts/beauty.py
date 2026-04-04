@@ -5,8 +5,12 @@ from __future__ import annotations
 import json
 import os
 import sys
+import traceback
 import urllib.error
 import urllib.request
+
+
+sys.stderr = sys.stdout
 
 
 FETCH_API_URL = "https://api.pearktrue.cn/api/today_wife"
@@ -75,4 +79,10 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except SystemExit:
+        raise
+    except Exception:
+        traceback.print_exc(file=sys.stdout)
+        raise SystemExit(1)

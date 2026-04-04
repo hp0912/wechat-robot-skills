@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import json
 import sys
+import traceback
 import urllib.error
 import urllib.request
+
+
+sys.stderr = sys.stdout
 
 
 API_URL = "https://api.pearktrue.cn/api/kfc?type=json"
@@ -33,4 +37,10 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except SystemExit:
+        raise
+    except Exception:
+        traceback.print_exc(file=sys.stdout)
+        raise SystemExit(1)

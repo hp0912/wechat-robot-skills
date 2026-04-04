@@ -7,7 +7,11 @@ import os
 import re
 import sys
 import time
+import traceback
 import urllib.request
+
+# The skill runner consumes stdout, so route Python error output there as well.
+sys.stderr = sys.stdout
 
 import pymysql  # type: ignore  # noqa: E402
 
@@ -363,4 +367,10 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except SystemExit:
+        raise
+    except Exception:
+        traceback.print_exc(file=sys.stdout)
+        raise SystemExit(1)
