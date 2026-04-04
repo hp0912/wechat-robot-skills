@@ -5,28 +5,9 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
 import sys
 import time
 import urllib.request
-
-
-# ---------------------------------------------------------------------------
-# Dependency bootstrap
-# ---------------------------------------------------------------------------
-
-def _ensure_package(pip_name: str, import_name: str | None = None) -> None:
-    """Install *pip_name* if it cannot be imported."""
-    try:
-        __import__(import_name or pip_name)
-    except ImportError:
-        subprocess.check_call(
-            [sys.executable, "-m", "pip", "install", pip_name, "-q"],
-            stdout=subprocess.DEVNULL,
-        )
-
-
-_ensure_package("pymysql")
 
 import pymysql  # type: ignore  # noqa: E402
 
