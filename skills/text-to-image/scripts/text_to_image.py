@@ -33,8 +33,8 @@ def _ensure_skill_venv_python() -> None:
     if not venv_python.is_file():
         return
 
-    current_python = Path(sys.executable).resolve()
-    if current_python == venv_python.resolve():
+    venv_dir = _skill_root() / ".venv"
+    if Path(sys.prefix) == venv_dir.resolve():
         return
 
     os.execv(str(venv_python), [str(venv_python), str(Path(__file__).resolve()), *sys.argv[1:]])
