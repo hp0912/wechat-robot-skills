@@ -9,11 +9,45 @@ import sys
 import time
 import traceback
 import urllib.request
+from pathlib import Path
 
 # The skill runner consumes stdout, so route Python error output there as well.
 sys.stderr = sys.stdout
 
-import pymysql  # type: ignore  # noqa: E402
+
+def _skill_root() -> Path:
+    script_dir = Path(__file__).resolve().parent
+    return script_dir.parent
+
+
+def _skill_venv_python() -> Path:
+    venv_dir = _skill_root() / ".venv"
+    if sys.platform == "win32":
+        return venv_dir / "Scripts" / "python.exe"
+    return venv_dir / "bin" / "python"
+
+
+def _ensure_skill_venv_python() -> None:
+    venv_python = _skill_venv_python()
+    if not venv_python.is_file():
+        return
+
+    current_python = Path(sys.executable).resolve()
+    if current_python == venv_python.resolve():
+        return
+
+    os.execv(str(venv_python), [str(venv_python), str(Path(__file__).resolve()), *sys.argv[1:]])
+
+
+_ensure_skill_venv_python()
+
+try:
+    import pymysql  # type: ignore  # noqa: E402
+except ModuleNotFoundError:
+    sys.stdout.write(
+        "缺少依赖 pymysql，请先执行 python3 text-to-image/scripts/bootstrap.py 安装当前 skill 的依赖\n"
+    )
+    raise SystemExit(1)
 
 
 # ---------------------------------------------------------------------------
