@@ -27,4 +27,5 @@ MYSQL_PASSWORD=houhou
 <wechat-robot-image-url>图片URL1</wechat-robot-image-url>
 <wechat-robot-image-url>图片URL2</wechat-robot-image-url>
 <wechat-robot-image-url>图片URL3</wechat-robot-image-url>
+<wechat-robot-image-url>图片URL4</wechat-robot-image-url>
 ```
