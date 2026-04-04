@@ -5,23 +5,37 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 import sys
 import time
-import urllib.error
 import urllib.request
 
 
-FALLBACK_TEXT = "AI 绘图暂时不可用，请稍后再试。"
+# ---------------------------------------------------------------------------
+# Dependency bootstrap
+# ---------------------------------------------------------------------------
+
+def _ensure_package(pip_name: str, import_name: str | None = None) -> None:
+    """Install *pip_name* if it cannot be imported."""
+    try:
+        __import__(import_name or pip_name)
+    except ImportError:
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", pip_name, "-q"],
+            stdout=subprocess.DEVNULL,
+        )
+
+
+_ensure_package("pymysql")
+
+import pymysql  # type: ignore  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
-# Database helpers (pure stdlib, no third-party MySQL driver)
+# Database helpers
 # ---------------------------------------------------------------------------
 
 def _mysql_connect():
-    """Return a simple MySQL connection via PyMySQL (stdlib-compatible pure-Python driver)
-    or fall back to mysql.connector. We import lazily so the script still loads
-    even if neither is installed (it will just raise at call-time)."""
     host = os.environ.get("MYSQL_HOST", "127.0.0.1")
     port = int(os.environ.get("MYSQL_PORT", "3306"))
     user = os.environ.get("MYSQL_USER", "root")
@@ -30,27 +44,11 @@ def _mysql_connect():
     if not database:
         raise RuntimeError("环境变量 ROBOT_CODE 未配置")
 
-    try:
-        import pymysql  # type: ignore
-        return pymysql.connect(
-            host=host, port=port, user=user, password=password,
-            database=database, charset="utf8mb4",
-            connect_timeout=10, read_timeout=30,
-        )
-    except ImportError:
-        pass
-
-    try:
-        import mysql.connector  # type: ignore
-        return mysql.connector.connect(
-            host=host, port=port, user=user, password=password,
-            database=database, charset="utf8mb4",
-            connection_timeout=10,
-        )
-    except ImportError:
-        pass
-
-    raise RuntimeError("需要安装 pymysql 或 mysql-connector-python: pip install pymysql")
+    return pymysql.connect(
+        host=host, port=port, user=user, password=password,
+        database=database, charset="utf8mb4",
+        connect_timeout=10, read_timeout=30,
+    )
 
 
 def _query_one(conn, sql: str, params: tuple = ()) -> dict | None:
@@ -287,13 +285,13 @@ ZIMAGE_MODELS = {"Z-Image", "Z-Image-Turbo", "Qwen-Image-Edit-2511"}
 def main() -> int:
     # Parse input params from first CLI argument
     if len(sys.argv) < 2:
-        sys.stdout.write(FALLBACK_TEXT + "\n")
+        sys.stdout.write("缺少输入参数\n")
         return 1
 
     try:
         params = json.loads(sys.argv[1])
-    except json.JSONDecodeError:
-        sys.stdout.write(FALLBACK_TEXT + "\n")
+    except json.JSONDecodeError as exc:
+        sys.stdout.write(f"参数格式错误: {exc}\n")
         return 1
 
     prompt = params.get("prompt", "").strip()
@@ -315,16 +313,14 @@ def main() -> int:
     try:
         conn = _mysql_connect()
     except Exception as exc:
-        sys.stderr.write(f"数据库连接失败: {exc}\n")
-        sys.stdout.write(FALLBACK_TEXT + "\n")
+        sys.stdout.write(f"数据库连接失败: {exc}\n")
         return 1
 
     try:
         enabled, settings_json = load_drawing_settings(conn, from_wx_id)
     except Exception as exc:
         conn.close()
-        sys.stderr.write(f"加载绘图配置失败: {exc}\n")
-        sys.stdout.write(FALLBACK_TEXT + "\n")
+        sys.stdout.write(f"加载绘图配置失败: {exc}\n")
         return 1
     finally:
         try:
@@ -370,8 +366,7 @@ def main() -> int:
             return 1
 
     except Exception as exc:
-        sys.stderr.write(f"调用绘图接口失败: {exc}\n")
-        sys.stdout.write(FALLBACK_TEXT + "\n")
+        sys.stdout.write(f"调用绘图接口失败: {exc}\n")
         return 1
 
     if not image_urls:
