@@ -98,7 +98,6 @@ def _query_one(conn, sql: str, params: tuple = ()) -> dict | None:
 
 def load_drawing_settings(conn, from_wx_id: str) -> tuple[bool, dict]:
     """Return (enabled, image_ai_settings_dict)."""
-    # 1. global_settings
     gs = _query_one(conn, "SELECT image_ai_enabled, image_ai_settings FROM global_settings LIMIT 1")
     enabled = False
     settings_json: dict = {}
@@ -113,7 +112,6 @@ def load_drawing_settings(conn, from_wx_id: str) -> tuple[bool, dict]:
             if isinstance(raw, str) and raw.strip():
                 settings_json = json.loads(raw)
 
-    # 2. override from chatroom / friend settings
     if from_wx_id.endswith("@chatroom"):
         override = _query_one(
             conn,
@@ -157,9 +155,9 @@ def _http_get_json(url: str, headers: dict, timeout: int = 30) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def call_jimeng(config: dict, prompt: str, model: str,
+def call_jimeng(config: dict, prompt: str, model: str, images: list[str],
                 negative_prompt: str, ratio: str, resolution: str) -> list[str]:
-    """Call JiMeng (即梦) image generation API."""
+    """Call JiMeng (即梦) image compositions API (图生图)."""
     base_url = config.get("base_url", "").rstrip("/")
     session_ids = config.get("sessionid", [])
     if not base_url or not session_ids:
@@ -182,6 +180,7 @@ def call_jimeng(config: dict, prompt: str, model: str,
     body = {
         "model": model,
         "prompt": prompt,
+        "images": images,
         "ratio": ratio,
         "resolution": resolution,
         "response_format": "url",
@@ -190,8 +189,9 @@ def call_jimeng(config: dict, prompt: str, model: str,
     if negative_prompt:
         body["negative_prompt"] = negative_prompt
 
+    # 图生图使用 /v1/images/compositions 端点
     resp = _http_post_json(
-        f"{base_url}/v1/images/generations",
+        f"{base_url}/v1/images/compositions",
         body,
         {"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
         timeout=300,
@@ -200,20 +200,16 @@ def call_jimeng(config: dict, prompt: str, model: str,
     return urls
 
 
-def call_doubao(config: dict, prompt: str, model: str) -> list[str]:
-    """Call DouBao (豆包) image generation API."""
+def call_doubao(config: dict, prompt: str, model: str, image: str) -> list[str]:
+    """Call DouBao (豆包) image-to-image API."""
     api_key = config.get("api_key", "")
     if not api_key:
         raise RuntimeError("豆包绘图配置缺少 api_key")
 
     if not model or model == "none":
-        model = "doubao-seedream-4.5"
+        model = "doubao-seededit-3.0-i2i"
 
-    # Map friendly model names to actual endpoint model IDs
     model_map = {
-        "doubao-seedream-4.5": "doubao-seedream-4-5-251128",
-        "doubao-seedream-4.0": "doubao-seedream-4-0-251128",
-        "doubao-seedream-3.0-t2i": "doubao-seedream-3-0-t2i-250415",
         "doubao-seededit-3.0-i2i": "doubao-seededit-3-0-i2i-250628",
     }
     actual_model = model_map.get(model, model)
@@ -226,9 +222,8 @@ def call_doubao(config: dict, prompt: str, model: str) -> list[str]:
         "sequential_image_generation": config.get("sequential_image_generation", "auto"),
         "watermark": config.get("watermark", False),
     }
-    image_val = config.get("image", "")
-    if image_val:
-        body["image"] = image_val
+    if image:
+        body["image"] = image
 
     resp = _http_post_json(
         "https://ark.cn-beijing.volces.com/api/v3/images/generations",
@@ -244,7 +239,7 @@ def call_doubao(config: dict, prompt: str, model: str) -> list[str]:
     return urls
 
 
-def call_zimage(config: dict, prompt: str, model: str) -> list[str]:
+def call_zimage(config: dict, prompt: str, model: str, images: list[str]) -> list[str]:
     """Call Z-Image (造相) image generation API (async task-based)."""
     base_url = config.get("base_url", "").rstrip("/")
     api_key = config.get("api_key", "")
@@ -252,9 +247,8 @@ def call_zimage(config: dict, prompt: str, model: str) -> list[str]:
         raise RuntimeError("造相绘图配置缺少 base_url 或 api_key")
 
     if not model or model == "none":
-        model = "Z-Image-Turbo"
+        model = "Qwen-Image-Edit-2511"
 
-    # Map model names
     model_map = {
         "Z-Image": "Tongyi-MAI/Z-Image",
         "Z-Image-Turbo": "Tongyi-MAI/Z-Image-Turbo",
@@ -267,7 +261,7 @@ def call_zimage(config: dict, prompt: str, model: str) -> list[str]:
     body = {
         "model": actual_model,
         "prompt": prompt,
-        "image_url": config.get("image_url", []),
+        "image_url": images,
     }
     headers = {
         "Content-Type": "application/json",
@@ -292,9 +286,9 @@ def call_zimage(config: dict, prompt: str, model: str) -> list[str]:
         task_resp = _http_get_json(f"{base_url}/v1/tasks/{task_id}", poll_headers, timeout=30)
         status = task_resp.get("task_status", "")
         if status == "SUCCEED":
-            images = task_resp.get("output_images", [])
-            if images:
-                return images
+            images_result = task_resp.get("output_images", [])
+            if images_result:
+                return images_result
             raise RuntimeError("造相任务成功但未返回图片")
         if status == "FAILED":
             raise RuntimeError("造相绘图任务失败")
@@ -308,13 +302,14 @@ def call_zimage(config: dict, prompt: str, model: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 JIMENG_MODELS = {"jimeng-4.5", "jimeng-4.6", "jimeng-5.0"}
-DOUBAO_MODELS = {"doubao-seedream-4.5", "doubao-seedream-4.0", "doubao-seedream-3.0-t2i", "doubao-seededit-3.0-i2i"}
+DOUBAO_MODELS = {"doubao-seededit-3.0-i2i"}
 ZIMAGE_MODELS = {"Z-Image", "Z-Image-Turbo", "Qwen-Image-Edit-2511"}
 
 
-def _parse_cli_params(argv: list[str]) -> dict[str, str]:
+def _parse_cli_params(argv: list[str]) -> dict:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--prompt", default="")
+    parser.add_argument("--images", action="append", default=[])
     parser.add_argument("--model", default="")
     parser.add_argument("--negative_prompt", default="")
     parser.add_argument("--ratio", default="")
@@ -326,6 +321,7 @@ def _parse_cli_params(argv: list[str]) -> dict[str, str]:
 
     return {
         "prompt": namespace.prompt,
+        "images": [img for img in namespace.images if img.strip()],
         "model": namespace.model,
         "negative_prompt": namespace.negative_prompt,
         "ratio": namespace.ratio,
@@ -346,7 +342,12 @@ def main() -> int:
 
     prompt = params.get("prompt", "").strip()
     if not prompt:
-        sys.stdout.write("缺少画图提示词\n")
+        sys.stdout.write("缺少提示词\n")
+        return 1
+
+    images = params.get("images", [])
+    if not images:
+        sys.stdout.write("图片链接列表为空\n")
         return 1
 
     model = params.get("model", "").strip()
@@ -369,7 +370,6 @@ def main() -> int:
     try:
         enabled, settings_json = load_drawing_settings(conn, from_wx_id)
     except Exception as exc:
-        conn.close()
         sys.stdout.write(f"加载绘图配置失败: {exc}\n")
         return 1
     finally:
@@ -395,21 +395,22 @@ def main() -> int:
             if not jimeng_config.get("enabled", False):
                 sys.stdout.write("即梦绘图未开启\n")
                 return 0
-            image_urls = call_jimeng(jimeng_config, prompt, model, negative_prompt, ratio, resolution)
+            image_urls = call_jimeng(jimeng_config, prompt, model, images, negative_prompt, ratio, resolution)
 
         elif model in DOUBAO_MODELS:
             doubao_config = settings_json.get("DouBao", {})
             if not doubao_config.get("enabled", False):
                 sys.stdout.write("豆包绘图未开启\n")
                 return 0
-            image_urls = call_doubao(doubao_config, prompt, model)
+            # 豆包图生图只支持单张图片
+            image_urls = call_doubao(doubao_config, prompt, model, images[0])
 
         elif model in ZIMAGE_MODELS:
             zimage_config = settings_json.get("Z-Image", {})
             if not zimage_config.get("enabled", False):
                 sys.stdout.write("造相绘图未开启\n")
                 return 0
-            image_urls = call_zimage(zimage_config, prompt, model)
+            image_urls = call_zimage(zimage_config, prompt, model, images)
 
         else:
             sys.stdout.write("不支持的 AI 图像模型\n")
