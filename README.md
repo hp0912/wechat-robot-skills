@@ -29,3 +29,17 @@ MYSQL_PASSWORD=houhou
 <wechat-robot-image-url>图片URL3</wechat-robot-image-url>
 <wechat-robot-image-url>图片URL4</wechat-robot-image-url>
 ```
+
+**发送图片的时候也可以调用 Agent 接口**
+
+```
+[POST] http://127.0.0.1:{ROBOT_WECHAT_CLIENT_PORT}/api/v1//robot/message/send/image/url
+
+请求体 Body:
+
+{
+  "to_wxid": "{{ROBOT_FROM_WX_ID}}",
+  "image_urls": ["{{imageurl}}"]
+}
+
+```

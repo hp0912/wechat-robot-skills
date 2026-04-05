@@ -423,11 +423,24 @@ def main() -> int:
         sys.stdout.write("未生成任何图像\n")
         return 1
 
-    for url in image_urls:
-        if url:
-            sys.stdout.write(f"<wechat-robot-image-url>{url}</wechat-robot-image-url>")
+    # 通过客户端接口发送图片
+    client_port = os.environ.get("ROBOT_WECHAT_CLIENT_PORT", "").strip()
+    if not client_port:
+        sys.stdout.write("环境变量 ROBOT_WECHAT_CLIENT_PORT 未配置\n")
+        return 1
 
-    sys.stdout.write("\n")
+    send_url = f"http://127.0.0.1:{client_port}/api/v1/robot/message/send/image/url"
+    send_body = {
+        "to_wxid": from_wx_id,
+        "image_urls": [u for u in image_urls if u],
+    }
+    try:
+        _http_post_json(send_url, send_body, {"Content-Type": "application/json"}, timeout=60)
+        sys.stdout.write("图片发送成功\n")
+    except Exception as exc:
+        sys.stdout.write(f"发送图片失败: {exc}\n")
+        return 1
+
     return 0
 
 
