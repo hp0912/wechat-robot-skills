@@ -340,7 +340,7 @@ def main() -> int:
 
     try:
         send_videos(from_wx_id, video_urls)
-        sys.stdout.write("视频发送成功\n")
+        sys.stdout.write("ended")
     except Exception as exc:
         sys.stdout.write(f"发送视频失败: {exc}\n")
         return 1

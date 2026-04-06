@@ -37,6 +37,13 @@ MYSQL_PASSWORD=houhou
 <wechat-robot-video-url>视频URL2</wechat-robot-video-url>
 ```
 
+**需要发语音的时候可以在控制台输出如下内容**
+
+```
+<wechat-robot-voice-url>语音URL1</wechat-robot-voice-url>
+<wechat-robot-voice-url>语音URL2</wechat-robot-voice-url>
+```
+
 **发送图片的时候也可以调用 Agent 接口**
 
 ```
@@ -62,5 +69,25 @@ MYSQL_PASSWORD=houhou
   "to_wxid": "{{ROBOT_FROM_WX_ID}}",
   "video_urls": ["{{videourl}}"]
 }
+```
 
+**发送语音的时候也可以调用 Agent 接口**
+
+```
+[POST] http://127.0.0.1:{ROBOT_WECHAT_CLIENT_PORT}/api/v1/robot/message/send/voice
+
+说明:
+该接口用于上传语音文件并发送给指定微信用户或群聊。
+请求方式为 multipart/form-data，支持 .amr、.mp3、.wav 格式，单个文件大小不能超过 50MB。
+
+表单参数:
+- to_wxid: 接收方微信 ID，必填
+- voice: 语音文件，必填
+
+请求体 Body:
+
+{
+  "to_wxid": "{{ROBOT_FROM_WX_ID}}",
+  "voice": "@/path/to/voice.amr"
+}
 ```
