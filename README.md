@@ -30,6 +30,13 @@ MYSQL_PASSWORD=houhou
 <wechat-robot-image-url>图片URL4</wechat-robot-image-url>
 ```
 
+**需要发送视频的时候可以在控制台输出如下内容**
+
+```
+<wechat-robot-video-url>视频URL1</wechat-robot-video-url>
+<wechat-robot-video-url>视频URL2</wechat-robot-video-url>
+```
+
 **发送图片的时候也可以调用 Agent 接口**
 
 ```
@@ -40,6 +47,20 @@ MYSQL_PASSWORD=houhou
 {
   "to_wxid": "{{ROBOT_FROM_WX_ID}}",
   "image_urls": ["{{imageurl}}"]
+}
+
+```
+
+**发送视频的时候也可以调用 Agent 接口**
+
+```
+[POST] http://127.0.0.1:{ROBOT_WECHAT_CLIENT_PORT}/api/v1/robot/message/send/video/url
+
+请求体 Body:
+
+{
+  "to_wxid": "{{ROBOT_FROM_WX_ID}}",
+  "video_urls": ["{{videourl}}"]
 }
 
 ```
