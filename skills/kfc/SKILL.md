@@ -12,7 +12,7 @@ argument-hint: "无需参数，直接调用即可"
 
 当用户提到 `kfc`、`KFC`、`肯德基` 或 `肯德基文案` 时，调用接口获取最新文案，并把接口返回的文案直接回复给用户。
 
-这个仓库里额外提供了一个可执行脚本 `kfc/scripts/kfc.py`，方便宿主机器人直接调用。
+这个仓库里额外提供了一个可执行脚本 `scripts/kfc.py`，方便宿主机器人直接调用。
 
 ## 触发条件
 
@@ -25,7 +25,7 @@ argument-hint: "无需参数，直接调用即可"
 
 - 请求地址：`https://api.pearktrue.cn/api/kfc?type=json`
 - 请求方式：`GET`
-- 本地脚本：`kfc/scripts/kfc.py`
+- 本地脚本：`scripts/kfc.py`
 - 返回示例：
 
 ```json
@@ -42,7 +42,7 @@ argument-hint: "无需参数，直接调用即可"
 ## 执行步骤
 
 1. 当用户输入 `kfc`、`KFC`、`肯德基` 或 `肯德基文案` 时触发该技能。
-2. 在仓库根目录下执行本地脚本：`python3 kfc/scripts/kfc.py`。
+2. 在仓库根目录下执行本地脚本：`python3 scripts/kfc.py`。
 3. 脚本内部发送 `GET` 请求到 `https://api.pearktrue.cn/api/kfc?type=json`。
 4. 脚本解析返回的 JSON，并输出 `text` 字段。
 5. 如果接口请求失败、返回格式异常，或没有拿到 `text`，脚本输出：`今天的肯德基文案暂时没拿到，等我再去问问。`
