@@ -10,6 +10,14 @@
 
 - ROBOT_CODE: 机器人实例编码
 
+- MYSQL_HOST: mysql 地址
+
+- MYSQL_PORT: mysql 端口
+
+- MYSQL_USER: mysql 账号
+
+- MYSQL_PASSWORD: mysql 密码
+
 - ROBOT_REDIS_DB: 机器人的 Redis DB
 
 - ROBOT_WX_ID: 机器人的微信 ID
@@ -21,13 +29,6 @@
 - ROBOT_MESSAGE_ID: 微信消息 ID
 
 - ROBOT_REF_MESSAGE_ID: 如果是引用消息，则是引用的消息的 ID
-
-**需要用户手动注入的环境变量，执行脚本只负责读，环境变量由用户在 UI 界面写入，当脚本需要操作 mysql 数据库的时候会用到**
-
-MYSQL_HOST=127.0.0.1
-MYSQL_PORT=3306
-MYSQL_USER=root
-MYSQL_PASSWORD=houhou
 
 **需要发送图片的时候可以在控制台输出如下内容**
 
