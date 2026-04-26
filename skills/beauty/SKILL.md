@@ -12,7 +12,7 @@ argument-hint: "无需参数，直接调用即可"
 
 当用户发送 `999` 时，调用外部接口获取图片链接，再调用本地微信机器人接口把图片发出去。
 
-这个仓库里额外提供了一个可执行脚本 `beauty/scripts/beauty.py`，方便宿主机器人直接调用。
+这个仓库里额外提供了一个可执行脚本 `scripts/beauty.py`，方便宿主机器人直接调用。
 
 ## 触发条件
 
@@ -24,7 +24,7 @@ argument-hint: "无需参数，直接调用即可"
 - 请求方式：`GET`
 - 发图接口：`http://127.0.0.1:{ROBOT_WECHAT_CLIENT_PORT}/api/v1/robot/message/send/image/url`
 - 请求方式：`POST`
-- 本地脚本：`beauty/scripts/beauty.py`
+- 本地脚本：`scripts/beauty.py`
 - 获取图片返回示例：
 
 ```json
@@ -51,7 +51,7 @@ argument-hint: "无需参数，直接调用即可"
 ## 执行步骤
 
 1. 当用户发送 `999` 时触发该技能。
-2. 在仓库根目录下执行本地脚本：`python3 beauty/scripts/beauty.py`。
+2. 在仓库根目录下执行本地脚本：`python3 scripts/beauty.py`。
 3. 脚本内部发送 `GET` 请求到 `https://api.pearktrue.cn/api/today_wife`。
 4. 脚本解析返回的 JSON，并提取 `data.image_url`。
 5. 脚本从环境变量中读取 `ROBOT_WECHAT_CLIENT_PORT` 和 `ROBOT_FROM_WX_ID`。
