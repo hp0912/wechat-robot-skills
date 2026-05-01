@@ -118,7 +118,7 @@ argument-hint: "需要 content；可选 emotion、voice、style_prompt、voice_p
 3. 在仓库根目录执行：
 
 ```bash
-python3 skills/voice-message/scripts/voice_message.py --content '这是一条语音消息' --emotion happy --style_prompt '请自然一点'
+python3 scripts/voice_message.py --content '这是一条语音消息' --emotion happy --style_prompt '请自然一点'
 ```
 
 4. 脚本会读取数据库中的 TTS 配置，按当前供应商能力映射通用参数，调用语音合成接口并通过客户端接口 `POST http://127.0.0.1:{ROBOT_WECHAT_CLIENT_PORT}/api/v1/robot/message/send/voice` 直接发送语音。
