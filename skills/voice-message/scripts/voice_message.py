@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import gzip
 import json
 import os
 import subprocess
@@ -14,6 +15,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+import zlib
 from pathlib import Path
 
 sys.stderr = sys.stdout
@@ -619,6 +621,35 @@ def _build_mimo_payload(config: dict, params: dict) -> tuple[dict, str, bool]:
     return payload, audio_format, stream
 
 
+def _decompress_response_bytes(raw: bytes, encoding: str) -> bytes:
+    encoding = (encoding or "").strip().lower()
+    if not encoding or encoding == "identity":
+        return raw
+    if encoding == "gzip":
+        return gzip.decompress(raw)
+    if encoding == "deflate":
+        try:
+            return zlib.decompress(raw)
+        except zlib.error:
+            return zlib.decompress(raw, -zlib.MAX_WBITS)
+    if encoding == "br":
+        try:
+            import brotli  # type: ignore
+        except ModuleNotFoundError as exc:
+            raise RuntimeError(
+                "mimo 响应使用了 brotli 压缩，但当前环境未安装 brotli，请安装后重试"
+            ) from exc
+        return brotli.decompress(raw)
+    raise RuntimeError(f"mimo 响应使用了不支持的 Content-Encoding: {encoding}")
+
+
+def _read_response_text(response) -> str:
+    raw = response.read()
+    encoding = response.headers.get("Content-Encoding", "")
+    raw = _decompress_response_bytes(raw, encoding)
+    return raw.decode("utf-8", errors="replace")
+
+
 def _decode_mimo_audio(audio_b64: object, audio_format: str) -> tuple[bytes, str]:
     if not isinstance(audio_b64, str) or not audio_b64:
         raise RuntimeError("mimo 响应未包含音频数据")
@@ -632,7 +663,7 @@ def _decode_mimo_audio(audio_b64: object, audio_format: str) -> tuple[bytes, str
 
 
 def _read_mimo_non_stream_response(response, audio_format: str) -> tuple[bytes, str]:
-    raw_body = response.read().decode("utf-8", errors="replace")
+    raw_body = _read_response_text(response)
     try:
         payload = json.loads(raw_body)
     except json.JSONDecodeError as exc:
@@ -703,6 +734,8 @@ def synthesize_audio_mimo(config: dict, params: dict) -> tuple[bytes, str]:
         headers={
             "Content-Type": "application/json",
             "api-key": api_key,
+            "Accept": "application/json, text/event-stream",
+            "Accept-Encoding": "identity",
         },
         method="POST",
     )
@@ -710,7 +743,10 @@ def synthesize_audio_mimo(config: dict, params: dict) -> tuple[bytes, str]:
     try:
         response = urllib.request.urlopen(req, timeout=300)
     except urllib.error.HTTPError as exc:
-        error_body = exc.read().decode("utf-8", errors="replace")
+        try:
+            error_body = _read_response_text(exc)
+        except Exception:
+            error_body = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"mimo API请求失败，状态码 {exc.code}: {error_body}") from exc
     except urllib.error.URLError as exc:
         raise RuntimeError(f"mimo 发送请求失败: {exc}") from exc
