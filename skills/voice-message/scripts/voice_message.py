@@ -740,14 +740,6 @@ def synthesize_audio_mimo(config: dict, params: dict) -> tuple[bytes, str]:
 
     url = f"{base_url}/chat/completions"
     payload, audio_format, stream = _build_mimo_payload(config, params)
-
-    sys.stdout.write(
-        f"[mimo debug] config={json.dumps(config, ensure_ascii=False)}\n"
-        f"[mimo debug] url={url}\n"
-        f"[mimo debug] api_key={api_key}\n"
-        f"[mimo debug] model={payload.get('model')}\n"
-    )
-
     request_data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
     req = urllib.request.Request(
@@ -755,7 +747,7 @@ def synthesize_audio_mimo(config: dict, params: dict) -> tuple[bytes, str]:
         data=request_data,
         headers={
             "Content-Type": "application/json",
-            "api-key": api_key,
+            "Authorization": f"Bearer {api_key}",
             "Accept": "application/json, text/event-stream",
             "Accept-Encoding": "identity",
         },
