@@ -68,9 +68,20 @@ def _skill_venv_python() -> Path:
     return venv_dir / "bin" / "python"
 
 
+def _get_python_executable() -> str:
+    if sys.executable:
+        return sys.executable
+    import shutil
+    for candidate in ("python3", "python"):
+        found = shutil.which(candidate)
+        if found:
+            return found
+    raise RuntimeError("无法找到 Python 解释器路径")
+
+
 def _run_bootstrap() -> None:
     bootstrap = Path(__file__).resolve().parent / "bootstrap.py"
-    result = subprocess.run([sys.executable, str(bootstrap)])
+    result = subprocess.run([_get_python_executable(), str(bootstrap)])
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
@@ -97,7 +108,8 @@ try:
     import pymysql  # type: ignore  # noqa: E402
 except ModuleNotFoundError:
     _run_bootstrap()
-    os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve()), *sys.argv[1:]])
+    _py = _get_python_executable()
+    os.execv(_py, [_py, str(Path(__file__).resolve()), *sys.argv[1:]])
 
 
 def _mysql_connect():

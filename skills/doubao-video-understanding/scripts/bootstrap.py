@@ -49,8 +49,14 @@ def _ensure_venv(venv_dir: Path, venv_python: Path) -> int:
         return 0
 
     sys.stdout.write(f"未检测到技能虚拟环境，正在创建: {venv_dir}\n")
+    import shutil
+    py = sys.executable or next(
+        (shutil.which(c) for c in ("python3", "python") if shutil.which(c)), None
+    )
+    if not py:
+        raise RuntimeError("无法找到 Python 解释器路径")
     command = [
-        sys.executable,
+        py,
         "-m",
         "venv",
         str(venv_dir),
