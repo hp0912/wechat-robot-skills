@@ -667,7 +667,14 @@ def _read_mimo_non_stream_response(response, audio_format: str) -> tuple[bytes, 
     try:
         payload = json.loads(raw_body)
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"解析 mimo 响应失败: {exc}, 响应内容: {raw_body}") from exc
+        snippet = raw_body[:300]
+        if "<html" in raw_body.lower() or "<!doctype" in raw_body.lower():
+            raise RuntimeError(
+                "mimo 响应不是 JSON，疑似 base_url 配置错误（被网关前端 SPA 拦截），"
+                "请检查 base_url 是否配置为带 /v1 的完整地址，例如 https://api.xiaomimimo.com/v1。"
+                f"响应片段: {snippet}"
+            ) from exc
+        raise RuntimeError(f"解析 mimo 响应失败: {exc}, 响应内容: {snippet}") from exc
 
     if isinstance(payload.get("error"), dict):
         error = payload["error"]
@@ -723,6 +730,13 @@ def synthesize_audio_mimo(config: dict, params: dict) -> tuple[bytes, str]:
     base_url = str(config.get("base_url") or DEFAULT_MIMO_BASE_URL).strip().rstrip("/")
     if not api_key:
         raise RuntimeError("mimo api_key 不能为空")
+
+    # 兼容用户把 base_url 配成不带 /v1 的根地址（如 New API / OneAPI 等网关），
+    # 避免请求被前端 SPA 兜底返回 index.html。
+    parsed_base = urllib.parse.urlsplit(base_url)
+    base_path = parsed_base.path or ""
+    if not base_path or base_path == "/":
+        base_url = f"{base_url}/v1"
 
     url = f"{base_url}/chat/completions"
     payload, audio_format, stream = _build_mimo_payload(config, params)
