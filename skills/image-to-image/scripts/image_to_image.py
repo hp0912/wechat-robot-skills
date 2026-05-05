@@ -275,7 +275,7 @@ def _debug_response(label: str, payload) -> None:
 
 def _rewrite_openai_image_url(url: str) -> str:
     internal_host = "http://chatgpt2api:80"
-    external_host = "http://chatgpt2api.houhoukang.com"
+    external_host = "https://chatgpt2api.houhoukang.com"
     if url.startswith(internal_host):
         return f"{external_host}{url[len(internal_host):]}"
     return url
@@ -304,7 +304,7 @@ def _send_image_outputs(client_port: str, from_wx_id: str, image_outputs: list[s
             "to_wxid": from_wx_id,
             "image_urls": remote_urls,
         }
-        response = _http_post_json(send_url, send_body, {"Content-Type": "application/json"}, timeout=60)
+        response = _http_post_json(send_url, send_body, {"Content-Type": "application/json"}, timeout=300)
         _debug_response("send image url response", response)
 
     if local_paths:
@@ -313,7 +313,7 @@ def _send_image_outputs(client_port: str, from_wx_id: str, image_outputs: list[s
             "to_wxid": from_wx_id,
             "file_path": local_paths,
         }
-        response = _http_post_json(send_url, send_body, {"Content-Type": "application/json"}, timeout=60)
+        response = _http_post_json(send_url, send_body, {"Content-Type": "application/json"}, timeout=300)
         _debug_response("send image local response", response)
 
 
