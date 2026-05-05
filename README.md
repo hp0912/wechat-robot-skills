@@ -55,6 +55,8 @@
 
 **发送图片的时候也可以调用 Agent 接口**
 
+1. 发送远程图片地址
+
 ```
 [POST] http://127.0.0.1:{ROBOT_WECHAT_CLIENT_PORT}/api/v1//robot/message/send/image/url
 
@@ -63,6 +65,20 @@
 {
   "to_wxid": "{{ROBOT_FROM_WX_ID}}",
   "image_urls": ["{{imageurl}}"]
+}
+
+```
+
+2. 发送本地图片路径
+
+```
+[POST] http://127.0.0.1:{ROBOT_WECHAT_CLIENT_PORT}/api/v1//robot/message/send/image/local
+
+请求体 Body:
+
+{
+  "to_wxid": "{{ROBOT_FROM_WX_ID}}",
+  "file_path": ["{{file_path}}"]
 }
 
 ```
