@@ -5,9 +5,22 @@
       "name": "text-to-image",
       "type": "debugpy",
       "request": "launch",
-      "program": "skills/text-to-image/scripts/debug_openai_image_generation_test.py",
+      "program": "skills/text-to-image/scripts/text_to_image.py",
       "console": "integratedTerminal",
       "justMyCode": true,
+      "args": [
+        "--prompt=马云在直播间卖红薯",
+        "--model=gpt-image-2"
+      ],
+      "env": {
+        "ROBOT_WECHAT_CLIENT_PORT": "9001",
+        "ROBOT_FROM_WX_ID": "57004904192@chatroom",
+        "ROBOT_CODE": "houhouipad",
+        "MYSQL_HOST": "127.0.0.1",
+        "MYSQL_PORT": "3306",
+        "MYSQL_USER": "root",
+        "MYSQL_PASSWORD": "houhou"
+      }
     }
   ]
 }

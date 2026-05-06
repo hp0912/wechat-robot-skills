@@ -78,7 +78,7 @@
 
 {
   "to_wxid": "{{ROBOT_FROM_WX_ID}}",
-  "file_path": ["{{file_path}}"]
+  "file_path": "{{file_path}}"
 }
 
 ```

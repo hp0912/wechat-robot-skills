@@ -350,11 +350,11 @@ def _send_image_outputs(client_port: str, from_wx_id: str, image_outputs: list[s
         response = _http_post_json(send_url, send_body, {"Content-Type": "application/json"}, timeout=300)
         _debug_response("send image url response", response)
 
-    if local_paths:
+    for file_path in local_paths:
         send_url = f"http://127.0.0.1:{client_port}/api/v1/robot/message/send/image/local"
         send_body = {
             "to_wxid": from_wx_id,
-            "file_path": local_paths,
+            "file_path": file_path,
         }
         response = _http_post_json(send_url, send_body, {"Content-Type": "application/json"}, timeout=300)
         _debug_response("send image local response", response)
