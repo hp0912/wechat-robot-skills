@@ -13,7 +13,7 @@ import urllib.request
 sys.stderr = sys.stdout
 
 
-FETCH_API_URL = "https://api.pearktrue.cn/api/today_wife"
+FETCH_API_URL = "https://api.pearapi.ai/api/today_wife"
 FALLBACK_TEXT = "今天的美女图片暂时没拿到，等我再找找。"
 
 

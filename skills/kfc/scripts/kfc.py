@@ -12,7 +12,7 @@ import urllib.request
 sys.stderr = sys.stdout
 
 
-API_URL = "https://api.pearktrue.cn/api/kfc?type=json"
+API_URL = "https://api.pearapi.ai/api/kfc?type=json"
 FALLBACK_TEXT = "今天的肯德基文案暂时没拿到，等我再去问问。"
 
 

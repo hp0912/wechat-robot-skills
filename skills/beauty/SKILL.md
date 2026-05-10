@@ -20,7 +20,7 @@ argument-hint: "无需参数，直接调用即可"
 
 ## 接口信息
 
-- 获取图片地址：`https://api.pearktrue.cn/api/today_wife`
+- 获取图片地址：`https://api.pearapi.ai/api/today_wife`
 - 请求方式：`GET`
 - 发图接口：`http://127.0.0.1:{ROBOT_WECHAT_CLIENT_PORT}/api/v1/robot/message/send/image/url`
 - 请求方式：`POST`
@@ -32,12 +32,12 @@ argument-hint: "无需参数，直接调用即可"
   "code": 200,
   "msg": "获取成功",
   "data": {
-    "image_url": "https://api.pearktrue.cn/api_assets/wife/9a6a9c38-7d6e-464f-8930-eb9dac41cde9.webp",
+    "image_url": "https://api.pearapi.ai/api_assets/wife/9a6a9c38-7d6e-464f-8930-eb9dac41cde9.webp",
     "role_name": "初音未来、巡音流歌",
     "width": 2480,
     "height": 3508
   },
-  "api_source": "官方API网:https://api.pearktrue.cn/"
+  "api_source": "官方API网:https://api.pearapi.ai/"
 }
 ```
 
@@ -52,7 +52,7 @@ argument-hint: "无需参数，直接调用即可"
 
 1. 当用户发送 `999` 时触发该技能。
 2. 在仓库根目录下执行本地脚本：`python3 scripts/beauty.py`。
-3. 脚本内部发送 `GET` 请求到 `https://api.pearktrue.cn/api/today_wife`。
+3. 脚本内部发送 `GET` 请求到 `https://api.pearapi.ai/api/today_wife`。
 4. 脚本解析返回的 JSON，并提取 `data.image_url`。
 5. 脚本从环境变量中读取 `ROBOT_WECHAT_CLIENT_PORT` 和 `ROBOT_FROM_WX_ID`。
 6. 脚本发送 `POST` 请求到 `http://127.0.0.1:{ROBOT_WECHAT_CLIENT_PORT}/api/v1/robot/message/send/image/url`，请求体为：

@@ -23,7 +23,7 @@ argument-hint: "无需参数，直接调用即可"
 
 ## 接口信息
 
-- 请求地址：`https://api.pearktrue.cn/api/kfc?type=json`
+- 请求地址：`https://api.pearapi.ai/api/kfc?type=json`
 - 请求方式：`GET`
 - 本地脚本：`scripts/kfc.py`
 - 返回示例：
@@ -33,7 +33,7 @@ argument-hint: "无需参数，直接调用即可"
   "code": 200,
   "msg": "获取成功",
   "text": "14看着不香，果然还是13更香，iPhone14真是更新了个寂寞！......今天肯德基疯狂星期四，谁请我吃？",
-  "api_source": "官方API网:https://api.pearktrue.cn/"
+  "api_source": "官方API网:https://api.pearapi.ai/"
 }
 ```
 
@@ -43,7 +43,7 @@ argument-hint: "无需参数，直接调用即可"
 
 1. 当用户输入 `kfc`、`KFC`、`肯德基` 或 `肯德基文案` 时触发该技能。
 2. 在仓库根目录下执行本地脚本：`python3 scripts/kfc.py`。
-3. 脚本内部发送 `GET` 请求到 `https://api.pearktrue.cn/api/kfc?type=json`。
+3. 脚本内部发送 `GET` 请求到 `https://api.pearapi.ai/api/kfc?type=json`。
 4. 脚本解析返回的 JSON，并输出 `text` 字段。
 5. 如果接口请求失败、返回格式异常，或没有拿到 `text`，脚本输出：`今天的肯德基文案暂时没拿到，等我再去问问。`
 6. 如果脚本无法执行（Python 环境不可用），直接回复兜底文案：`今天的肯德基文案暂时没拿到，等我再去问问。`
