@@ -267,6 +267,8 @@ def _truncate_debug_payload(value):
 
 
 def _debug_response(label: str, payload) -> None:
+    if os.environ.get("SKILL_DEBUG_LOG", "").strip().lower() not in {"true", "1"}:
+        return
     if hasattr(payload, "model_dump"):
         payload = payload.model_dump()
     payload = _truncate_debug_payload(payload)
