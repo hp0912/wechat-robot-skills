@@ -225,6 +225,57 @@ function withTimeout(promise, ms, message) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+function waitForProcessExit(child, timeoutMs) {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve();
+  }
+  return withTimeout(
+    new Promise((resolve) => child.once("exit", resolve)),
+    timeoutMs,
+    "等待 Chromium 退出超时",
+  );
+}
+
+async function closeChromium(client, browser) {
+  try {
+    await withTimeout(client.send("Browser.close"), 1500, "关闭 Chromium 超时");
+  } catch (error) {
+    if (
+      browser.chrome.exitCode === null &&
+      browser.chrome.signalCode === null
+    ) {
+      browser.chrome.kill("SIGTERM");
+    }
+  }
+
+  try {
+    await waitForProcessExit(browser.chrome, 3000);
+  } catch (error) {
+    if (
+      browser.chrome.exitCode === null &&
+      browser.chrome.signalCode === null
+    ) {
+      browser.chrome.kill("SIGKILL");
+    }
+    await waitForProcessExit(browser.chrome, 3000).catch(() => null);
+  } finally {
+    client.close();
+  }
+}
+
+async function cleanupUserDataDir(userDataDir) {
+  try {
+    await fsp.rm(userDataDir, {
+      recursive: true,
+      force: true,
+      maxRetries: 8,
+      retryDelay: 200,
+    });
+  } catch (error) {
+    stdout(`清理 Chromium 临时目录失败，已忽略: ${error.message || error}`);
+  }
+}
+
 async function launchChromium(params) {
   const chromeBin = findChromium();
   const userDataDir = await fsp.mkdtemp(
@@ -733,9 +784,8 @@ async function run() {
       stdout(`页面截图已保存: ${screenshot.output}${suffix}`);
     }
   } finally {
-    client.close();
-    browser.chrome.kill("SIGKILL");
-    await fsp.rm(browser.userDataDir, { recursive: true, force: true });
+    await closeChromium(client, browser);
+    await cleanupUserDataDir(browser.userDataDir);
   }
 }
 
