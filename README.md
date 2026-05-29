@@ -116,3 +116,17 @@
   "voice": "@/path/to/voice.amr"
 }
 ```
+
+**Agent 发送文本消息接口(可以 艾特/@/提及 某个人/某些人)**
+
+```
+[POST] http://127.0.0.1:{ROBOT_WECHAT_CLIENT_PORT}/api/v1/robot/message/send/text
+
+请求体 Body:
+
+{
+  "to_wxid": "{{ROBOT_FROM_WX_ID}}",
+  "content": "", // 你需要发送的文本内容
+  "at": [], // 字符串数组，你要艾特的人的微信 id
+}
+```
