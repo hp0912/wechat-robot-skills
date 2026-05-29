@@ -68,7 +68,8 @@ argument-hint: "需要 media_type；可选 count，最多 5。media_type 可为 
 4. 根据 `media_type` / `media_types` 查找图片、视频、语音，可一次查找多种类型。
 5. 最多返回 5 条。脚本会先取最近匹配的 N 条，再按时间升序输出，因此第一条最早，最后一条最晚。
 6. 历史消息查询直接读取数据库 `messages` 表，不调用历史消息 HTTP 接口。
-7. 查到消息记录后，脚本必须先调用客户端下载接口下载媒体，再调用客户端上传接口上传到 CDN，最后只把 CDN URL 返回给智能体。
+7. 如果消息记录的 `attachment_url` 不为空，直接使用该 URL。
+8. 如果 `attachment_url` 为空，脚本必须先调用客户端下载接口下载媒体，再调用客户端上传接口上传到 CDN，最后只把 CDN URL 返回给智能体。
 
 ## 执行步骤
 
@@ -91,8 +92,9 @@ python3 scripts/find_recent_chat_media.py --media_type image --count 1
 - `sender_wxid = ROBOT_SENDER_WX_ID`
 - `created_at` 在最近十分钟内
 - `type` 为图片 `3`、语音 `34`、视频 `43`
+- `attachment_url` 不为空时直接作为媒体 URL 返回
 
-脚本会调用以下客户端接口下载和上传媒体：
+当 `attachment_url` 为空时，脚本会调用以下客户端接口下载和上传媒体：
 
 - 下载图片：`GET http://127.0.0.1:{ROBOT_WECHAT_CLIENT_PORT}/api/v1/robot/chat/image/download?message_id=...`
 - 下载视频：`GET http://127.0.0.1:{ROBOT_WECHAT_CLIENT_PORT}/api/v1/robot/chat/video/download?message_id=...`

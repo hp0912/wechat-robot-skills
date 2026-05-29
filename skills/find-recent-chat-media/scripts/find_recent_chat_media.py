@@ -296,7 +296,7 @@ def _fetch_history_media_messages(
 
     placeholders = ", ".join(["%s"] * len(message_types))
     sql = f"""
-        SELECT id, type, from_wxid, sender_wxid, created_at
+        SELECT id, type, from_wxid, sender_wxid, attachment_url, created_at
         FROM messages
         WHERE from_wxid = %s
           AND sender_wxid = %s
@@ -405,11 +405,6 @@ def main() -> int:
         sys.stdout.write(f"参数格式错误: {exc}\n")
         return 1
 
-    client_port = os.environ.get("ROBOT_WECHAT_CLIENT_PORT", "").strip()
-    if not client_port:
-        sys.stdout.write("环境变量 ROBOT_WECHAT_CLIENT_PORT 未配置\n")
-        return 1
-
     from_wx_id = os.environ.get("ROBOT_FROM_WX_ID", "").strip()
     if not from_wx_id:
         sys.stdout.write("环境变量 ROBOT_FROM_WX_ID 未配置\n")
@@ -420,7 +415,6 @@ def main() -> int:
         sys.stdout.write("环境变量 ROBOT_SENDER_WX_ID 未配置\n")
         return 1
 
-    base_url = _client_base_url(client_port)
     end_time = int(time.time())
     start_time = end_time - HISTORY_MINUTES * 60
 
@@ -449,13 +443,24 @@ def main() -> int:
     items: list[dict[str, Any]] = []
     urls_by_type: dict[str, list[str]] = {"image": [], "video": [], "voice": []}
     try:
+        client_port = ""
+        base_url = ""
         for message in selected_messages:
             message_id = _to_int(message.get("id"))
             media_type = str(message.get("media_type") or "")
             if message_id <= 0 or media_type not in MEDIA_MESSAGE_TYPES:
                 continue
-            data, filename, content_type, extension = _download_media(base_url, message_id, media_type)
-            media_url = _upload_media(base_url, message_id, media_type, data, filename, content_type, extension)
+
+            media_url = str(message.get("attachment_url") or "").strip()
+            if not media_url:
+                if not client_port:
+                    client_port = os.environ.get("ROBOT_WECHAT_CLIENT_PORT", "").strip()
+                    if not client_port:
+                        raise RuntimeError("环境变量 ROBOT_WECHAT_CLIENT_PORT 未配置")
+                    base_url = _client_base_url(client_port)
+                data, filename, content_type, extension = _download_media(base_url, message_id, media_type)
+                media_url = _upload_media(base_url, message_id, media_type, data, filename, content_type, extension)
+
             urls_by_type[media_type].append(media_url)
             items.append(
                 {
