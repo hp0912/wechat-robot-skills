@@ -126,11 +126,12 @@ def _expand_json_array_values(values: list[str], label: str) -> list[str]:
     return expanded
 
 
-def _parse_cli_params(argv: list[str]) -> tuple[list[str], str]:
+def _parse_cli_params(argv: list[str]) -> tuple[list[str], str, bool]:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--mention", action="append", default=[])
     parser.add_argument("--mentions", action="append", default=[])
     parser.add_argument("--content", default="")
+    parser.add_argument("--ended", action="store_true", default=False)
 
     namespace, unknown = parser.parse_known_args(argv)
     if unknown:
@@ -145,7 +146,7 @@ def _parse_cli_params(argv: list[str]) -> tuple[list[str], str]:
             seen.add(key)
             deduped.append(mention)
 
-    return deduped, namespace.content
+    return deduped, namespace.content, namespace.ended
 
 
 def _escape_like(value: str) -> str:
@@ -229,7 +230,7 @@ def main() -> int:
         return 1
 
     try:
-        mentions, content = _parse_cli_params(sys.argv[1:])
+        mentions, content, ended = _parse_cli_params(sys.argv[1:])
     except (ValueError, json.JSONDecodeError) as exc:
         sys.stdout.write(f"参数格式错误: {exc}\n")
         return 1
@@ -278,6 +279,8 @@ def main() -> int:
     try:
         _send_text_message(client_port, chat_room_id, content, at_wechat_ids)
         sys.stdout.write("艾特消息发送成功\n")
+        if ended:
+            sys.stdout.write("ended\n")
         return 0
     except Exception as exc:
         sys.stdout.write(f"艾特消息发送失败: {exc}\n")
@@ -286,7 +289,12 @@ def main() -> int:
 
 if __name__ == "__main__":
     try:
-        raise SystemExit(main())
+        exit_code = main()
+        if exit_code == 0:
+            # ended may have already been printed above in the success path.
+            # If main() returned non-zero, ended is not printed.
+            pass
+        raise SystemExit(exit_code)
     except SystemExit:
         raise
     except Exception:
