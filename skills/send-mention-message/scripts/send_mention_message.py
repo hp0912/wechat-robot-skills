@@ -280,7 +280,7 @@ def main() -> int:
         _send_text_message(client_port, chat_room_id, content, at_wechat_ids)
         sys.stdout.write("艾特消息发送成功\n")
         if ended:
-            sys.stdout.write("ended\n")
+            sys.stdout.write("ended")
         return 0
     except Exception as exc:
         sys.stdout.write(f"艾特消息发送失败: {exc}\n")
