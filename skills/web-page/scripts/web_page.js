@@ -13,6 +13,22 @@ const DEFAULT_VIEWPORT_HEIGHT = 900;
 const DEFAULT_WAIT_MS = 1500;
 const DEFAULT_TIMEOUT_MS = 45000;
 const DEFAULT_MAX_CHARS = 16000;
+const DEFAULT_ACTION_TIMEOUT_MS = 15000;
+const DEFAULT_ACTION_WAIT_MS = 300;
+const ACTION_TYPES = new Set([
+  "click",
+  "fill",
+  "type",
+  "press",
+  "select",
+  "check",
+  "uncheck",
+  "wait",
+  "wait_for_selector",
+  "scroll",
+  "scroll_to",
+  "captcha_check",
+]);
 
 function stdout(message) {
   process.stdout.write(`${message}\n`);
@@ -64,6 +80,126 @@ function parseInteger(value, name, fallback) {
     throw new Error(`${name} 必须是整数`);
   }
   return parsed;
+}
+
+function readActionsFile(filePath) {
+  if (!filePath || !filePath.trim()) {
+    return "";
+  }
+  try {
+    return fs.readFileSync(filePath, "utf8");
+  } catch (error) {
+    throw new Error(`读取 actions_file 失败: ${error.message || error}`);
+  }
+}
+
+function parseJsonActions(rawActions, rawActionsFile) {
+  const source =
+    rawActions !== undefined ? rawActions : readActionsFile(rawActionsFile);
+  if (source === undefined || source === "") {
+    return [];
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(source);
+  } catch (error) {
+    throw new Error(`actions 必须是合法 JSON: ${error.message || error}`);
+  }
+  if (parsed && !Array.isArray(parsed) && Array.isArray(parsed.actions)) {
+    parsed = parsed.actions;
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error("actions 必须是动作数组，或包含 actions 数组的对象");
+  }
+  return parsed;
+}
+
+function normalizeAction(rawAction, index, defaultActionTimeoutMs) {
+  if (!rawAction || typeof rawAction !== "object" || Array.isArray(rawAction)) {
+    throw new Error(`第 ${index + 1} 个 action 必须是对象`);
+  }
+
+  const type = String(rawAction.type || "").trim();
+  if (!ACTION_TYPES.has(type)) {
+    throw new Error(`第 ${index + 1} 个 action.type 不支持: ${type || "(空)"}`);
+  }
+
+  const action = {
+    ...rawAction,
+    type,
+    selector:
+      rawAction.selector === undefined ? "" : String(rawAction.selector),
+    text: rawAction.text === undefined ? "" : String(rawAction.text),
+    value: rawAction.value === undefined ? "" : String(rawAction.value),
+    key: rawAction.key === undefined ? "" : String(rawAction.key),
+    exact: Boolean(rawAction.exact),
+    index: parseInteger(rawAction.index, `actions[${index}].index`, 0),
+    timeoutMs: parseInteger(
+      rawAction.timeout_ms,
+      `actions[${index}].timeout_ms`,
+      defaultActionTimeoutMs,
+    ),
+    waitMsAfter: parseInteger(
+      rawAction.wait_ms_after,
+      `actions[${index}].wait_ms_after`,
+      DEFAULT_ACTION_WAIT_MS,
+    ),
+    waitForNavigation: Boolean(rawAction.wait_for_navigation),
+  };
+
+  if (action.index < 0) {
+    throw new Error(`actions[${index}].index 不能小于 0`);
+  }
+  if (action.timeoutMs <= 0) {
+    throw new Error(`actions[${index}].timeout_ms 必须大于 0`);
+  }
+  if (action.waitMsAfter < 0) {
+    throw new Error(`actions[${index}].wait_ms_after 不能小于 0`);
+  }
+
+  if (type === "click" && !action.selector && !action.text) {
+    throw new Error(
+      `第 ${index + 1} 个 click action 必须提供 selector 或 text`,
+    );
+  }
+  if (
+    ["fill", "select", "check", "uncheck"].includes(type) &&
+    !action.selector
+  ) {
+    throw new Error(`第 ${index + 1} 个 ${type} action 必须提供 selector`);
+  }
+  if (type === "type" && !action.text) {
+    throw new Error(`第 ${index + 1} 个 type action 必须提供 text`);
+  }
+  if (type === "press" && !action.key) {
+    throw new Error(`第 ${index + 1} 个 press action 必须提供 key`);
+  }
+  if (type === "wait_for_selector" && !action.selector) {
+    throw new Error("wait_for_selector action 必须提供 selector");
+  }
+  if (type === "wait") {
+    action.ms = parseInteger(rawAction.ms, `actions[${index}].ms`, undefined);
+    if (action.ms === undefined || action.ms < 0) {
+      throw new Error("wait action 必须提供大于等于 0 的 ms");
+    }
+  }
+  if (type === "scroll") {
+    action.x = parseNumber(rawAction.x, `actions[${index}].x`, 0);
+    action.y = parseNumber(rawAction.y, `actions[${index}].y`, 600);
+  }
+  if (type === "scroll_to") {
+    action.x = parseNumber(rawAction.x, `actions[${index}].x`, undefined);
+    action.y = parseNumber(rawAction.y, `actions[${index}].y`, undefined);
+  }
+
+  return action;
+}
+
+function parseActions(raw, actionTimeoutMs) {
+  return parseJsonActions(raw.actions, raw.actions_file).map((action, index) =>
+    normalizeAction(action, index, actionTimeoutMs),
+  );
 }
 
 function validateUrl(value) {
@@ -118,6 +254,14 @@ function normalizeParams(raw) {
     "max_full_height",
     60000,
   );
+  const actionTimeoutMs = parseInteger(
+    raw.action_timeout_ms,
+    "action_timeout_ms",
+    DEFAULT_ACTION_TIMEOUT_MS,
+  );
+  const actions = parseActions(raw, actionTimeoutMs);
+  const captchaStrategy =
+    raw.captcha_strategy || (actions.length ? "detect" : "ignore");
 
   if (viewportWidth <= 0 || viewportHeight <= 0) {
     throw new Error("视口 width 和 height 必须大于 0");
@@ -133,6 +277,12 @@ function normalizeParams(raw) {
   }
   if (maxFullHeight <= 0) {
     throw new Error("max_full_height 必须大于 0");
+  }
+  if (actionTimeoutMs <= 0) {
+    throw new Error("action_timeout_ms 必须大于 0");
+  }
+  if (!["detect", "ignore"].includes(captchaStrategy)) {
+    throw new Error("captcha_strategy 只能是 detect 或 ignore");
   }
 
   const params = {
@@ -157,6 +307,9 @@ function normalizeParams(raw) {
     timeoutMs,
     maxChars,
     maxFullHeight,
+    actionTimeoutMs,
+    actions,
+    captchaStrategy,
     output: raw.output || "",
     send: raw.send || "auto",
   };
@@ -492,6 +645,446 @@ async function evaluate(client, sessionId, expression) {
   return result.result ? result.result.value : undefined;
 }
 
+async function getElementPoint(client, sessionId, action) {
+  const encodedAction = JSON.stringify(action);
+  const point = await evaluate(
+    client,
+    sessionId,
+    `(async () => {
+    const action = ${encodedAction};
+    const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+    const isVisible = (el) => {
+      const style = window.getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && rect.width > 0 && rect.height > 0;
+    };
+    const textOf = (el) => normalize([
+      el.innerText,
+      el.value,
+      el.getAttribute('aria-label'),
+      el.getAttribute('title'),
+      el.getAttribute('alt'),
+      el.getAttribute('placeholder'),
+    ].filter(Boolean).join(' '));
+    const matchesText = (el) => {
+      if (!action.text) return true;
+      const haystack = textOf(el);
+      return action.exact ? haystack === action.text : haystack.includes(action.text);
+    };
+    const candidates = action.selector
+      ? Array.from(document.querySelectorAll(action.selector))
+      : Array.from(document.querySelectorAll('button, a, input, textarea, select, label, [role="button"], [onclick], [tabindex]'));
+    const matches = candidates.filter((el) => isVisible(el) && matchesText(el));
+    const el = matches[action.index || 0];
+    if (!el) {
+      return null;
+    }
+    el.scrollIntoView({ block: 'center', inline: 'center' });
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const rect = el.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.min(window.innerWidth - 1, rect.left + rect.width / 2)),
+      y: Math.max(0, Math.min(window.innerHeight - 1, rect.top + rect.height / 2)),
+      description: action.selector || action.text || textOf(el),
+    };
+  })()`,
+  );
+  if (!point) {
+    const target = action.selector || `text=${action.text}`;
+    throw new Error(`未找到可操作元素: ${target}`);
+  }
+  return point;
+}
+
+async function clickElement(client, sessionId, action) {
+  const point = await getElementPoint(client, sessionId, action);
+  const clickCount = Math.max(
+    1,
+    parseInteger(action.click_count, "click_count", 1),
+  );
+  await client.send(
+    "Input.dispatchMouseEvent",
+    {
+      type: "mouseMoved",
+      x: point.x,
+      y: point.y,
+      button: "none",
+      clickCount: 0,
+    },
+    sessionId,
+  );
+  for (let index = 0; index < clickCount; index += 1) {
+    await client.send(
+      "Input.dispatchMouseEvent",
+      {
+        type: "mousePressed",
+        x: point.x,
+        y: point.y,
+        button: "left",
+        buttons: 1,
+        clickCount: index + 1,
+      },
+      sessionId,
+    );
+    await client.send(
+      "Input.dispatchMouseEvent",
+      {
+        type: "mouseReleased",
+        x: point.x,
+        y: point.y,
+        button: "left",
+        buttons: 0,
+        clickCount: index + 1,
+      },
+      sessionId,
+    );
+  }
+}
+
+async function fillElement(client, sessionId, action) {
+  const encodedAction = JSON.stringify(action);
+  const ok = await evaluate(
+    client,
+    sessionId,
+    `(() => {
+    const action = ${encodedAction};
+    const el = document.querySelectorAll(action.selector)[action.index || 0];
+    if (!el) return false;
+    el.scrollIntoView({ block: 'center', inline: 'center' });
+    el.focus();
+    const value = action.value;
+    if (el.isContentEditable) {
+      el.textContent = value;
+    } else if ('value' in el) {
+      el.value = value;
+    } else {
+      el.textContent = value;
+    }
+    el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  })()`,
+  );
+  if (!ok) {
+    throw new Error(`未找到可填写元素: ${action.selector}`);
+  }
+}
+
+async function focusElement(client, sessionId, action) {
+  if (!action.selector) {
+    return;
+  }
+  const encodedAction = JSON.stringify(action);
+  const ok = await evaluate(
+    client,
+    sessionId,
+    `(() => {
+    const action = ${encodedAction};
+    const el = document.querySelectorAll(action.selector)[action.index || 0];
+    if (!el) return false;
+    el.scrollIntoView({ block: 'center', inline: 'center' });
+    el.focus();
+    return document.activeElement === el || el.contains(document.activeElement);
+  })()`,
+  );
+  if (!ok) {
+    throw new Error(`未找到可聚焦元素: ${action.selector}`);
+  }
+}
+
+async function typeText(client, sessionId, action) {
+  await focusElement(client, sessionId, action);
+  await client.send("Input.insertText", { text: action.text }, sessionId);
+}
+
+function keyDefinition(key) {
+  const special = {
+    Enter: { code: "Enter", windowsVirtualKeyCode: 13 },
+    Tab: { code: "Tab", windowsVirtualKeyCode: 9 },
+    Escape: { code: "Escape", windowsVirtualKeyCode: 27 },
+    Backspace: { code: "Backspace", windowsVirtualKeyCode: 8 },
+    Delete: { code: "Delete", windowsVirtualKeyCode: 46 },
+    ArrowUp: { code: "ArrowUp", windowsVirtualKeyCode: 38 },
+    ArrowDown: { code: "ArrowDown", windowsVirtualKeyCode: 40 },
+    ArrowLeft: { code: "ArrowLeft", windowsVirtualKeyCode: 37 },
+    ArrowRight: { code: "ArrowRight", windowsVirtualKeyCode: 39 },
+  };
+  if (special[key]) {
+    return { key, ...special[key] };
+  }
+  if (key.length === 1) {
+    const upper = key.toUpperCase();
+    return {
+      key,
+      code: `Key${upper}`,
+      text: key,
+      windowsVirtualKeyCode: upper.charCodeAt(0),
+    };
+  }
+  return { key, code: key, windowsVirtualKeyCode: 0 };
+}
+
+async function pressKey(client, sessionId, action) {
+  await focusElement(client, sessionId, action);
+  const key = keyDefinition(action.key);
+  await client.send(
+    "Input.dispatchKeyEvent",
+    { type: "keyDown", ...key },
+    sessionId,
+  );
+  await client.send(
+    "Input.dispatchKeyEvent",
+    { type: "keyUp", ...key },
+    sessionId,
+  );
+}
+
+async function selectElement(client, sessionId, action) {
+  const encodedAction = JSON.stringify(action);
+  const ok = await evaluate(
+    client,
+    sessionId,
+    `(() => {
+    const action = ${encodedAction};
+    const el = document.querySelectorAll(action.selector)[action.index || 0];
+    if (!el || !(el instanceof HTMLSelectElement)) return false;
+    el.focus();
+    el.value = action.value;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  })()`,
+  );
+  if (!ok) {
+    throw new Error(`未找到可选择的 select 元素: ${action.selector}`);
+  }
+}
+
+async function setChecked(client, sessionId, action, checked) {
+  const encodedAction = JSON.stringify(action);
+  const ok = await evaluate(
+    client,
+    sessionId,
+    `(() => {
+    const action = ${encodedAction};
+    const el = document.querySelectorAll(action.selector)[action.index || 0];
+    if (!el || !('checked' in el)) return false;
+    el.focus();
+    el.checked = ${checked ? "true" : "false"};
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  })()`,
+  );
+  if (!ok) {
+    throw new Error(`未找到可勾选元素: ${action.selector}`);
+  }
+}
+
+async function waitForSelector(client, sessionId, action) {
+  const state = action.state || "visible";
+  if (!["attached", "visible", "hidden", "detached"].includes(state)) {
+    throw new Error(
+      "wait_for_selector.state 只能是 attached、visible、hidden 或 detached",
+    );
+  }
+  const startedAt = Date.now();
+  while (Date.now() - startedAt <= action.timeoutMs) {
+    const encodedAction = JSON.stringify(action);
+    const result = await evaluate(
+      client,
+      sessionId,
+      `(() => {
+      const action = ${encodedAction};
+      const el = document.querySelectorAll(action.selector)[action.index || 0];
+      if (!el) return { attached: false, visible: false };
+      const style = window.getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      return {
+        attached: true,
+        visible: style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && rect.width > 0 && rect.height > 0,
+      };
+    })()`,
+    );
+    if (
+      (state === "attached" && result.attached) ||
+      (state === "visible" && result.visible) ||
+      (state === "hidden" && result.attached && !result.visible) ||
+      (state === "detached" && !result.attached)
+    ) {
+      return;
+    }
+    await wait(100);
+  }
+  throw new Error(`等待 selector 超时: ${action.selector}`);
+}
+
+async function scrollPage(client, sessionId, action) {
+  await evaluate(
+    client,
+    sessionId,
+    `window.scrollBy(${JSON.stringify(action.x)}, ${JSON.stringify(action.y)})`,
+  );
+}
+
+async function scrollToTarget(client, sessionId, action) {
+  const encodedAction = JSON.stringify(action);
+  const ok = await evaluate(
+    client,
+    sessionId,
+    `(() => {
+    const action = ${encodedAction};
+    if (action.selector || action.text) {
+      const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+      const textOf = (el) => normalize([el.innerText, el.value, el.getAttribute('aria-label'), el.getAttribute('title')].filter(Boolean).join(' '));
+      const candidates = action.selector
+        ? Array.from(document.querySelectorAll(action.selector))
+        : Array.from(document.querySelectorAll('button, a, input, textarea, select, label, [role="button"], [onclick], [tabindex], main, article, section, div'));
+      const matches = candidates.filter((el) => {
+        if (!action.text) return true;
+        const haystack = textOf(el);
+        return action.exact ? haystack === action.text : haystack.includes(action.text);
+      });
+      const el = matches[action.index || 0];
+      if (!el) return false;
+      el.scrollIntoView({ block: 'center', inline: 'center' });
+      return true;
+    }
+    window.scrollTo(action.x || 0, action.y || 0);
+    return true;
+  })()`,
+  );
+  if (!ok) {
+    const target = action.selector || `text=${action.text}`;
+    throw new Error(`未找到可滚动到的元素: ${target}`);
+  }
+}
+
+async function detectCaptcha(client, sessionId) {
+  return await evaluate(
+    client,
+    sessionId,
+    `(() => {
+    const signals = [];
+    const add = (value) => {
+      if (value && !signals.includes(value)) signals.push(value);
+    };
+    const text = (document.body && document.body.innerText || '').replace(/\s+/g, ' ').slice(0, 20000);
+    const lowerText = text.toLowerCase();
+    if (/captcha|recaptcha|hcaptcha|turnstile|verify you are human|security check/.test(lowerText)) add('页面文本疑似包含人机验证');
+    if (/验证码|人机验证|安全验证|滑块|拖动滑块|请完成验证|行为验证/.test(text)) add('页面文本疑似包含中文验证码提示');
+    for (const el of Array.from(document.querySelectorAll('iframe, input, div, canvas'))) {
+      const value = [
+        el.getAttribute('src'),
+        el.getAttribute('title'),
+        el.getAttribute('name'),
+        el.getAttribute('id'),
+        el.getAttribute('class'),
+        el.getAttribute('aria-label'),
+        el.getAttribute('data-sitekey'),
+      ].filter(Boolean).join(' ').toLowerCase();
+      if (/captcha|recaptcha|hcaptcha|turnstile|geetest|aliyun|tencent|cloudflare/.test(value)) {
+        add('页面元素疑似验证码组件');
+      }
+    }
+    return { found: signals.length > 0, signals };
+  })()`,
+  );
+}
+
+async function assertNoCaptcha(client, sessionId) {
+  const result = await detectCaptcha(client, sessionId);
+  if (result && result.found) {
+    throw new Error(
+      `页面疑似出现验证码/人机验证，已停止自动化操作: ${(result.signals || []).join("；") || "未知信号"}。请改用人工验证后的页面、降低访问频率，或设置 captcha_strategy=ignore 仅继续非验证码相关操作。`,
+    );
+  }
+}
+
+async function runSingleAction(client, sessionId, action) {
+  switch (action.type) {
+    case "click":
+      await clickElement(client, sessionId, action);
+      return;
+    case "fill":
+      await fillElement(client, sessionId, action);
+      return;
+    case "type":
+      await typeText(client, sessionId, action);
+      return;
+    case "press":
+      await pressKey(client, sessionId, action);
+      return;
+    case "select":
+      await selectElement(client, sessionId, action);
+      return;
+    case "check":
+      await setChecked(client, sessionId, action, true);
+      return;
+    case "uncheck":
+      await setChecked(client, sessionId, action, false);
+      return;
+    case "wait":
+      await wait(action.ms);
+      return;
+    case "wait_for_selector":
+      await waitForSelector(client, sessionId, action);
+      return;
+    case "scroll":
+      await scrollPage(client, sessionId, action);
+      return;
+    case "scroll_to":
+      await scrollToTarget(client, sessionId, action);
+      return;
+    case "captcha_check":
+      await assertNoCaptcha(client, sessionId);
+      return;
+    default:
+      throw new Error(`不支持的 action.type: ${action.type}`);
+  }
+}
+
+async function runActions(client, sessionId, params) {
+  if (!params.actions.length) {
+    return;
+  }
+
+  for (let index = 0; index < params.actions.length; index += 1) {
+    const action = params.actions[index];
+    try {
+      if (
+        params.captchaStrategy === "detect" &&
+        action.type !== "captcha_check"
+      ) {
+        await assertNoCaptcha(client, sessionId);
+      }
+      const loadEvent = action.waitForNavigation
+        ? client
+            .waitForEvent("Page.loadEventFired", sessionId, action.timeoutMs)
+            .catch(() => null)
+        : null;
+      await withTimeout(
+        runSingleAction(client, sessionId, action),
+        action.timeoutMs,
+        `执行 action 超时: ${action.type}`,
+      );
+      if (loadEvent) {
+        await loadEvent;
+      }
+      if (action.waitMsAfter > 0) {
+        await wait(action.waitMsAfter);
+      }
+      if (params.captchaStrategy === "detect") {
+        await assertNoCaptcha(client, sessionId);
+      }
+    } catch (error) {
+      throw new Error(
+        `第 ${index + 1} 个 action(${action.type}) 执行失败: ${error.message || error}`,
+      );
+    }
+  }
+}
+
 function cleanText(text) {
   return String(text || "")
     .replace(/\u00a0/g, " ")
@@ -764,6 +1357,7 @@ async function run() {
     await client.connect(params.timeoutMs);
     const sessionId = await createPage(client, params);
     await navigate(client, sessionId, params);
+    await runActions(client, sessionId, params);
 
     if (params.mode === "content") {
       stdout(await extractContent(client, sessionId, params));
