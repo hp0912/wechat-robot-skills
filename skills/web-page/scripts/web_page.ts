@@ -1,12 +1,13 @@
-#!/usr/bin/env node
+#!/usr/bin/env tsx
 "use strict";
 
-const fs = require("fs");
-const fsp = require("fs/promises");
-const http = require("http");
-const os = require("os");
-const path = require("path");
-const { spawn } = require("child_process");
+import fs from "node:fs";
+import fsp from "node:fs/promises";
+import http from "node:http";
+import os from "node:os";
+import path from "node:path";
+import { spawn, type ChildProcess } from "node:child_process";
+import type { IncomingMessage } from "node:http";
 
 const DEFAULT_VIEWPORT_WIDTH = 1365;
 const DEFAULT_VIEWPORT_HEIGHT = 900;
@@ -15,7 +16,8 @@ const DEFAULT_TIMEOUT_MS = 45000;
 const DEFAULT_MAX_CHARS = 16000;
 const DEFAULT_ACTION_TIMEOUT_MS = 15000;
 const DEFAULT_ACTION_WAIT_MS = 300;
-const ACTION_TYPES = new Set([
+
+const ACTION_TYPES = new Set<string>([
   "click",
   "fill",
   "type",
@@ -30,12 +32,120 @@ const ACTION_TYPES = new Set([
   "captcha_check",
 ]);
 
-function stdout(message) {
+type ActionType =
+  | "click"
+  | "fill"
+  | "type"
+  | "press"
+  | "select"
+  | "check"
+  | "uncheck"
+  | "wait"
+  | "wait_for_selector"
+  | "scroll"
+  | "scroll_to"
+  | "captcha_check";
+
+type RawArgs = Record<string, string>;
+
+interface NormalizedAction {
+  type: ActionType;
+  selector: string;
+  text: string;
+  value: string;
+  key: string;
+  exact: boolean;
+  index: number;
+  timeoutMs: number;
+  waitMsAfter: number;
+  waitForNavigation: boolean;
+  state?: string;
+  click_count?: unknown;
+  ms?: number;
+  x?: number;
+  y?: number;
+}
+
+interface Params {
+  url: string;
+  mode: "content" | "screenshot";
+  screenshotMode: "full" | "viewport" | "selector" | "region";
+  selector: string;
+  x: number | undefined;
+  y: number | undefined;
+  regionWidth: number | undefined;
+  regionHeight: number | undefined;
+  viewportWidth: number;
+  viewportHeight: number;
+  waitMs: number;
+  timeoutMs: number;
+  maxChars: number;
+  maxFullHeight: number;
+  actionTimeoutMs: number;
+  actions: NormalizedAction[];
+  captchaStrategy: "detect" | "ignore";
+  output: string;
+  send: "auto" | "true" | "false";
+}
+
+interface ChromiumBrowser {
+  chrome: ChildProcess;
+  userDataDir: string;
+  websocketUrl: string;
+}
+
+interface ElementPoint {
+  x: number;
+  y: number;
+  description: string;
+}
+
+interface CaptchaResult {
+  found: boolean;
+  signals: string[];
+}
+
+interface ExtractedLink {
+  text: string;
+  href: string;
+}
+
+interface ExtractedContent {
+  title: string;
+  url: string;
+  lang: string;
+  description: string;
+  text: string;
+  headings: string[];
+  links: ExtractedLink[];
+}
+
+interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+interface LayoutContentSize extends Rect {}
+
+interface ScreenshotClip extends Rect {
+  scale: number;
+  truncated?: boolean;
+  rawHeight?: number;
+}
+
+interface SelectorState {
+  attached: boolean;
+  visible: boolean;
+}
+
+function stdout(message: string): void {
   process.stdout.write(`${message}\n`);
 }
 
-function parseArgs(argv) {
-  const result = {};
+function parseArgs(argv: string[]): RawArgs {
+  const result: RawArgs = {};
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
     if (!token.startsWith("--")) {
@@ -44,7 +154,7 @@ function parseArgs(argv) {
 
     const equalIndex = token.indexOf("=");
     let key = token.slice(2);
-    let value;
+    let value: string;
     if (equalIndex >= 0) {
       key = token.slice(2, equalIndex);
       value = token.slice(equalIndex + 1);
@@ -63,7 +173,11 @@ function parseArgs(argv) {
   return result;
 }
 
-function parseNumber(value, name, fallback = undefined) {
+function parseNumber(
+  value: unknown,
+  name: string,
+  fallback?: number,
+): number | undefined {
   if (value === undefined || value === "") {
     return fallback;
   }
@@ -74,39 +188,53 @@ function parseNumber(value, name, fallback = undefined) {
   return parsed;
 }
 
-function parseInteger(value, name, fallback) {
+function parseInteger(value: unknown, name: string, fallback?: number): number {
   const parsed = parseNumber(value, name, fallback);
-  if (!Number.isInteger(parsed)) {
+  if (parsed === undefined || !Number.isInteger(parsed)) {
     throw new Error(`${name} 必须是整数`);
   }
   return parsed;
 }
 
-function readActionsFile(filePath) {
+function readActionsFile(filePath: string | undefined): string {
   if (!filePath || !filePath.trim()) {
     return "";
   }
   try {
     return fs.readFileSync(filePath, "utf8");
   } catch (error) {
-    throw new Error(`读取 actions_file 失败: ${error.message || error}`);
+    throw new Error(`读取 actions_file 失败: ${errorMessage(error)}`);
   }
 }
 
-function parseJsonActions(rawActions, rawActionsFile) {
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseJsonActions(
+  rawActions: string | undefined,
+  rawActionsFile: string | undefined,
+): unknown[] {
   const source =
     rawActions !== undefined ? rawActions : readActionsFile(rawActionsFile);
   if (source === undefined || source === "") {
     return [];
   }
 
-  let parsed;
+  let parsed: unknown;
   try {
     parsed = JSON.parse(source);
   } catch (error) {
-    throw new Error(`actions 必须是合法 JSON: ${error.message || error}`);
+    throw new Error(`actions 必须是合法 JSON: ${errorMessage(error)}`);
   }
-  if (parsed && !Array.isArray(parsed) && Array.isArray(parsed.actions)) {
+  if (isPlainObject(parsed) && Array.isArray(parsed.actions)) {
     parsed = parsed.actions;
   }
   if (!Array.isArray(parsed)) {
@@ -115,19 +243,22 @@ function parseJsonActions(rawActions, rawActionsFile) {
   return parsed;
 }
 
-function normalizeAction(rawAction, index, defaultActionTimeoutMs) {
-  if (!rawAction || typeof rawAction !== "object" || Array.isArray(rawAction)) {
+function normalizeAction(
+  rawAction: unknown,
+  index: number,
+  defaultActionTimeoutMs: number,
+): NormalizedAction {
+  if (!isPlainObject(rawAction)) {
     throw new Error(`第 ${index + 1} 个 action 必须是对象`);
   }
 
-  const type = String(rawAction.type || "").trim();
+  const type = String(rawAction.type ?? "").trim();
   if (!ACTION_TYPES.has(type)) {
     throw new Error(`第 ${index + 1} 个 action.type 不支持: ${type || "(空)"}`);
   }
 
-  const action = {
-    ...rawAction,
-    type,
+  const action: NormalizedAction = {
+    type: type as ActionType,
     selector:
       rawAction.selector === undefined ? "" : String(rawAction.selector),
     text: rawAction.text === undefined ? "" : String(rawAction.text),
@@ -146,6 +277,8 @@ function normalizeAction(rawAction, index, defaultActionTimeoutMs) {
       DEFAULT_ACTION_WAIT_MS,
     ),
     waitForNavigation: Boolean(rawAction.wait_for_navigation),
+    state: rawAction.state === undefined ? undefined : String(rawAction.state),
+    click_count: rawAction.click_count,
   };
 
   if (action.index < 0) {
@@ -196,20 +329,23 @@ function normalizeAction(rawAction, index, defaultActionTimeoutMs) {
   return action;
 }
 
-function parseActions(raw, actionTimeoutMs) {
+function parseActions(
+  raw: RawArgs,
+  actionTimeoutMs: number,
+): NormalizedAction[] {
   return parseJsonActions(raw.actions, raw.actions_file).map((action, index) =>
     normalizeAction(action, index, actionTimeoutMs),
   );
 }
 
-function validateUrl(value) {
+function validateUrl(value: string): string {
   if (!value || !value.trim()) {
     throw new Error("缺少网页链接");
   }
-  let parsed;
+  let parsed: URL;
   try {
     parsed = new URL(value.trim());
-  } catch (error) {
+  } catch {
     throw new Error(`网页链接格式不正确: ${value}`);
   }
   if (!["http:", "https:"].includes(parsed.protocol) || !parsed.hostname) {
@@ -218,7 +354,7 @@ function validateUrl(value) {
   return parsed.toString();
 }
 
-function normalizeParams(raw) {
+function normalizeParams(raw: RawArgs): Params {
   const url = validateUrl(raw.url || "");
   const mode = raw.mode || "content";
   if (!["content", "screenshot"].includes(mode)) {
@@ -285,10 +421,15 @@ function normalizeParams(raw) {
     throw new Error("captcha_strategy 只能是 detect 或 ignore");
   }
 
-  const params = {
+  const send = raw.send || "auto";
+  if (!["auto", "true", "false"].includes(send)) {
+    throw new Error("send 只能是 auto、true 或 false");
+  }
+
+  const params: Params = {
     url,
-    mode,
-    screenshotMode,
+    mode: mode as Params["mode"],
+    screenshotMode: screenshotMode as Params["screenshotMode"],
     selector: raw.selector || "",
     x: parseNumber(raw.x, "x"),
     y: parseNumber(raw.y, "y"),
@@ -309,14 +450,11 @@ function normalizeParams(raw) {
     maxFullHeight,
     actionTimeoutMs,
     actions,
-    captchaStrategy,
+    captchaStrategy: captchaStrategy as Params["captchaStrategy"],
     output: raw.output || "",
-    send: raw.send || "auto",
+    send: send as Params["send"],
   };
 
-  if (!["auto", "true", "false"].includes(params.send)) {
-    throw new Error("send 只能是 auto、true 或 false");
-  }
   if (
     mode === "screenshot" &&
     screenshotMode === "selector" &&
@@ -325,10 +463,13 @@ function normalizeParams(raw) {
     throw new Error("selector 截图模式必须传 selector");
   }
   if (mode === "screenshot" && screenshotMode === "region") {
-    for (const key of ["x", "y", "regionWidth", "regionHeight"]) {
-      if (params[key] === undefined) {
-        throw new Error("region 截图模式必须传 x、y、width、height");
-      }
+    if (
+      params.x === undefined ||
+      params.y === undefined ||
+      params.regionWidth === undefined ||
+      params.regionHeight === undefined
+    ) {
+      throw new Error("region 截图模式必须传 x、y、width、height");
     }
     if (params.regionWidth <= 0 || params.regionHeight <= 0) {
       throw new Error("region 截图区域 width 和 height 必须大于 0");
@@ -338,16 +479,16 @@ function normalizeParams(raw) {
   return params;
 }
 
-function fileExists(filePath) {
+function fileExists(filePath: string): boolean {
   try {
     fs.accessSync(filePath, fs.constants.X_OK);
     return true;
-  } catch (error) {
+  } catch {
     return false;
   }
 }
 
-function findChromium() {
+function findChromium(): string {
   const candidates = [
     process.env.CHROME_BIN,
     process.env.CHROME_PATH,
@@ -356,7 +497,7 @@ function findChromium() {
     "/usr/bin/google-chrome",
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "/Applications/Chromium.app/Contents/MacOS/Chromium",
-  ].filter(Boolean);
+  ].filter((candidate): candidate is string => Boolean(candidate));
 
   for (const candidate of candidates) {
     if (fileExists(candidate)) {
@@ -366,33 +507,43 @@ function findChromium() {
   throw new Error("未找到 Chromium，请设置 CHROME_BIN 或 CHROME_PATH");
 }
 
-function wait(ms) {
+function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function withTimeout(promise, ms, message) {
-  let timer;
-  const timeout = new Promise((_, reject) => {
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  message: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(message)), ms);
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-function waitForProcessExit(child, timeoutMs) {
+function waitForProcessExit(
+  child: ChildProcess,
+  timeoutMs: number,
+): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) {
     return Promise.resolve();
   }
   return withTimeout(
-    new Promise((resolve) => child.once("exit", resolve)),
+    new Promise<void>((resolve) => child.once("exit", () => resolve())),
     timeoutMs,
     "等待 Chromium 退出超时",
   );
 }
 
-async function closeChromium(client, browser) {
+async function closeChromium(
+  client: CdpClient,
+  browser: ChromiumBrowser,
+): Promise<void> {
   try {
     await withTimeout(client.send("Browser.close"), 1500, "关闭 Chromium 超时");
-  } catch (error) {
+  } catch {
     if (
       browser.chrome.exitCode === null &&
       browser.chrome.signalCode === null
@@ -403,7 +554,7 @@ async function closeChromium(client, browser) {
 
   try {
     await waitForProcessExit(browser.chrome, 3000);
-  } catch (error) {
+  } catch {
     if (
       browser.chrome.exitCode === null &&
       browser.chrome.signalCode === null
@@ -416,7 +567,7 @@ async function closeChromium(client, browser) {
   }
 }
 
-async function cleanupUserDataDir(userDataDir) {
+async function cleanupUserDataDir(userDataDir: string): Promise<void> {
   try {
     await fsp.rm(userDataDir, {
       recursive: true,
@@ -425,11 +576,11 @@ async function cleanupUserDataDir(userDataDir) {
       retryDelay: 200,
     });
   } catch (error) {
-    stdout(`清理 Chromium 临时目录失败，已忽略: ${error.message || error}`);
+    stdout(`清理 Chromium 临时目录失败，已忽略: ${errorMessage(error)}`);
   }
 }
 
-async function launchChromium(params) {
+async function launchChromium(params: Params): Promise<ChromiumBrowser> {
   const chromeBin = findChromium();
   const userDataDir = await fsp.mkdtemp(
     path.join(os.tmpdir(), "web-page-chromium-"),
@@ -453,17 +604,23 @@ async function launchChromium(params) {
   ];
 
   const chrome = spawn(chromeBin, args, { stdio: ["ignore", "pipe", "pipe"] });
+  const childStdout = chrome.stdout;
+  const childStderr = chrome.stderr;
+  if (!childStdout || !childStderr) {
+    throw new Error("无法获取 Chromium 输出流");
+  }
+
   let logBuffer = "";
-  const websocketUrlPromise = new Promise((resolve, reject) => {
-    const onData = (chunk) => {
+  const websocketUrlPromise = new Promise<string>((resolve, reject) => {
+    const onData = (chunk: Buffer): void => {
       logBuffer += chunk.toString("utf8");
       const match = logBuffer.match(/DevTools listening on (ws:\/\/[^\s]+)/);
       if (match) {
         resolve(match[1]);
       }
     };
-    chrome.stdout.on("data", onData);
-    chrome.stderr.on("data", onData);
+    childStdout.on("data", onData);
+    childStderr.on("data", onData);
     chrome.once("error", reject);
     chrome.once("exit", (code) => {
       reject(
@@ -481,8 +638,34 @@ async function launchChromium(params) {
   return { chrome, userDataDir, websocketUrl };
 }
 
+interface PendingRequest {
+  resolve: (result: Record<string, unknown>) => void;
+  reject: (error: Error) => void;
+}
+
+interface CdpEventListener {
+  method: string;
+  sessionId?: string;
+  resolve: (params: Record<string, unknown>) => void;
+}
+
+interface CdpMessage {
+  id?: number;
+  method?: string;
+  sessionId?: string;
+  params?: Record<string, unknown>;
+  result?: Record<string, unknown>;
+  error?: { message?: string };
+}
+
 class CdpClient {
-  constructor(websocketUrl) {
+  private readonly websocketUrl: string;
+  private nextId: number;
+  private readonly pending: Map<number, PendingRequest>;
+  private listeners: CdpEventListener[];
+  private ws: WebSocket | null;
+
+  constructor(websocketUrl: string) {
     this.websocketUrl = websocketUrl;
     this.nextId = 1;
     this.pending = new Map();
@@ -490,22 +673,23 @@ class CdpClient {
     this.ws = null;
   }
 
-  async connect(timeoutMs) {
+  async connect(timeoutMs: number): Promise<void> {
     if (typeof WebSocket === "undefined") {
       throw new Error(
         "当前 Node.js 缺少 WebSocket 支持，请使用 Node.js 22+ 或基础镜像中的 Node.js 24+",
       );
     }
 
-    this.ws = new WebSocket(this.websocketUrl);
-    this.ws.addEventListener("message", (event) =>
+    const ws = new WebSocket(this.websocketUrl);
+    this.ws = ws;
+    ws.addEventListener("message", (event: MessageEvent) =>
       this.handleMessage(event.data),
     );
 
     await withTimeout(
-      new Promise((resolve, reject) => {
-        this.ws.addEventListener("open", resolve, { once: true });
-        this.ws.addEventListener(
+      new Promise<void>((resolve, reject) => {
+        ws.addEventListener("open", () => resolve(), { once: true });
+        ws.addEventListener(
           "error",
           () => reject(new Error("连接 Chromium DevTools 失败")),
           { once: true },
@@ -516,8 +700,8 @@ class CdpClient {
     );
   }
 
-  handleMessage(raw) {
-    let rawText;
+  private handleMessage(raw: unknown): void {
+    let rawText: string;
     if (typeof raw === "string") {
       rawText = raw;
     } else if (Buffer.isBuffer(raw)) {
@@ -528,22 +712,25 @@ class CdpClient {
       rawText = String(raw);
     }
 
-    let message;
+    let message: CdpMessage;
     try {
-      message = JSON.parse(rawText);
-    } catch (error) {
+      message = JSON.parse(rawText) as CdpMessage;
+    } catch {
       return;
     }
 
-    if (message.id && this.pending.has(message.id)) {
-      const { resolve, reject } = this.pending.get(message.id);
+    if (message.id !== undefined && this.pending.has(message.id)) {
+      const entry = this.pending.get(message.id);
       this.pending.delete(message.id);
+      if (!entry) {
+        return;
+      }
       if (message.error) {
-        reject(
+        entry.reject(
           new Error(message.error.message || JSON.stringify(message.error)),
         );
       } else {
-        resolve(message.result || {});
+        entry.resolve(message.result || {});
       }
       return;
     }
@@ -562,23 +749,38 @@ class CdpClient {
     }
   }
 
-  send(method, params = {}, sessionId = undefined) {
+  send<T extends Record<string, unknown> = Record<string, unknown>>(
+    method: string,
+    params: Record<string, unknown> = {},
+    sessionId?: string,
+  ): Promise<T> {
+    const ws = this.ws;
+    if (!ws) {
+      return Promise.reject(new Error("Chromium DevTools 尚未连接"));
+    }
     const id = this.nextId;
     this.nextId += 1;
-    const payload = { id, method, params };
+    const payload: Record<string, unknown> = { id, method, params };
     if (sessionId) {
       payload.sessionId = sessionId;
     }
 
-    return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      this.ws.send(JSON.stringify(payload));
+    return new Promise<T>((resolve, reject) => {
+      this.pending.set(id, {
+        resolve: (result) => resolve(result as T),
+        reject,
+      });
+      ws.send(JSON.stringify(payload));
     });
   }
 
-  waitForEvent(method, sessionId, timeoutMs) {
+  waitForEvent(
+    method: string,
+    sessionId: string | undefined,
+    timeoutMs: number,
+  ): Promise<Record<string, unknown>> {
     return withTimeout(
-      new Promise((resolve) => {
+      new Promise<Record<string, unknown>>((resolve) => {
         this.listeners.push({ method, sessionId, resolve });
       }),
       timeoutMs,
@@ -586,21 +788,27 @@ class CdpClient {
     );
   }
 
-  close() {
+  close(): void {
     if (this.ws) {
       this.ws.close();
     }
   }
 }
 
-async function createPage(client, params) {
-  const target = await client.send("Target.createTarget", {
-    url: "about:blank",
-  });
-  const attached = await client.send("Target.attachToTarget", {
-    targetId: target.targetId,
-    flatten: true,
-  });
+async function createPage(client: CdpClient, params: Params): Promise<string> {
+  const target = await client.send<{ targetId: string }>(
+    "Target.createTarget",
+    {
+      url: "about:blank",
+    },
+  );
+  const attached = await client.send<{ sessionId: string }>(
+    "Target.attachToTarget",
+    {
+      targetId: target.targetId,
+      flatten: true,
+    },
+  );
   const sessionId = attached.sessionId;
   await client.send("Page.enable", {}, sessionId);
   await client.send("Runtime.enable", {}, sessionId);
@@ -618,7 +826,11 @@ async function createPage(client, params) {
   return sessionId;
 }
 
-async function navigate(client, sessionId, params) {
+async function navigate(
+  client: CdpClient,
+  sessionId: string,
+  params: Params,
+): Promise<void> {
   const loadEvent = client
     .waitForEvent("Page.loadEventFired", sessionId, params.timeoutMs)
     .catch(() => null);
@@ -629,8 +841,17 @@ async function navigate(client, sessionId, params) {
   }
 }
 
-async function evaluate(client, sessionId, expression) {
-  const result = await client.send(
+interface RuntimeEvaluateResult {
+  result?: { value?: unknown };
+  exceptionDetails?: { text?: string };
+}
+
+async function evaluate<T>(
+  client: CdpClient,
+  sessionId: string,
+  expression: string,
+): Promise<T> {
+  const result = await client.send<Record<string, unknown>>(
     "Runtime.evaluate",
     {
       expression,
@@ -639,15 +860,20 @@ async function evaluate(client, sessionId, expression) {
     },
     sessionId,
   );
-  if (result.exceptionDetails) {
-    throw new Error(result.exceptionDetails.text || "页面脚本执行失败");
+  const evaluation = result as RuntimeEvaluateResult;
+  if (evaluation.exceptionDetails) {
+    throw new Error(evaluation.exceptionDetails.text || "页面脚本执行失败");
   }
-  return result.result ? result.result.value : undefined;
+  return (evaluation.result ? evaluation.result.value : undefined) as T;
 }
 
-async function getElementPoint(client, sessionId, action) {
+async function getElementPoint(
+  client: CdpClient,
+  sessionId: string,
+  action: NormalizedAction,
+): Promise<ElementPoint> {
   const encodedAction = JSON.stringify(action);
-  const point = await evaluate(
+  const point = await evaluate<ElementPoint | null>(
     client,
     sessionId,
     `(async () => {
@@ -696,7 +922,11 @@ async function getElementPoint(client, sessionId, action) {
   return point;
 }
 
-async function clickElement(client, sessionId, action) {
+async function clickElement(
+  client: CdpClient,
+  sessionId: string,
+  action: NormalizedAction,
+): Promise<void> {
   const point = await getElementPoint(client, sessionId, action);
   const clickCount = Math.max(
     1,
@@ -741,9 +971,13 @@ async function clickElement(client, sessionId, action) {
   }
 }
 
-async function fillElement(client, sessionId, action) {
+async function fillElement(
+  client: CdpClient,
+  sessionId: string,
+  action: NormalizedAction,
+): Promise<void> {
   const encodedAction = JSON.stringify(action);
-  const ok = await evaluate(
+  const ok = await evaluate<boolean>(
     client,
     sessionId,
     `(() => {
@@ -770,12 +1004,16 @@ async function fillElement(client, sessionId, action) {
   }
 }
 
-async function focusElement(client, sessionId, action) {
+async function focusElement(
+  client: CdpClient,
+  sessionId: string,
+  action: NormalizedAction,
+): Promise<void> {
   if (!action.selector) {
     return;
   }
   const encodedAction = JSON.stringify(action);
-  const ok = await evaluate(
+  const ok = await evaluate<boolean>(
     client,
     sessionId,
     `(() => {
@@ -792,13 +1030,27 @@ async function focusElement(client, sessionId, action) {
   }
 }
 
-async function typeText(client, sessionId, action) {
+async function typeText(
+  client: CdpClient,
+  sessionId: string,
+  action: NormalizedAction,
+): Promise<void> {
   await focusElement(client, sessionId, action);
   await client.send("Input.insertText", { text: action.text }, sessionId);
 }
 
-function keyDefinition(key) {
-  const special = {
+interface KeyDefinition {
+  key: string;
+  code: string;
+  text?: string;
+  windowsVirtualKeyCode: number;
+}
+
+function keyDefinition(key: string): KeyDefinition {
+  const special: Record<
+    string,
+    { code: string; windowsVirtualKeyCode: number }
+  > = {
     Enter: { code: "Enter", windowsVirtualKeyCode: 13 },
     Tab: { code: "Tab", windowsVirtualKeyCode: 9 },
     Escape: { code: "Escape", windowsVirtualKeyCode: 27 },
@@ -809,8 +1061,9 @@ function keyDefinition(key) {
     ArrowLeft: { code: "ArrowLeft", windowsVirtualKeyCode: 37 },
     ArrowRight: { code: "ArrowRight", windowsVirtualKeyCode: 39 },
   };
-  if (special[key]) {
-    return { key, ...special[key] };
+  const found = special[key];
+  if (found) {
+    return { key, ...found };
   }
   if (key.length === 1) {
     const upper = key.toUpperCase();
@@ -824,7 +1077,11 @@ function keyDefinition(key) {
   return { key, code: key, windowsVirtualKeyCode: 0 };
 }
 
-async function pressKey(client, sessionId, action) {
+async function pressKey(
+  client: CdpClient,
+  sessionId: string,
+  action: NormalizedAction,
+): Promise<void> {
   await focusElement(client, sessionId, action);
   const key = keyDefinition(action.key);
   await client.send(
@@ -839,9 +1096,13 @@ async function pressKey(client, sessionId, action) {
   );
 }
 
-async function selectElement(client, sessionId, action) {
+async function selectElement(
+  client: CdpClient,
+  sessionId: string,
+  action: NormalizedAction,
+): Promise<void> {
   const encodedAction = JSON.stringify(action);
-  const ok = await evaluate(
+  const ok = await evaluate<boolean>(
     client,
     sessionId,
     `(() => {
@@ -860,9 +1121,14 @@ async function selectElement(client, sessionId, action) {
   }
 }
 
-async function setChecked(client, sessionId, action, checked) {
+async function setChecked(
+  client: CdpClient,
+  sessionId: string,
+  action: NormalizedAction,
+  checked: boolean,
+): Promise<void> {
   const encodedAction = JSON.stringify(action);
-  const ok = await evaluate(
+  const ok = await evaluate<boolean>(
     client,
     sessionId,
     `(() => {
@@ -881,7 +1147,11 @@ async function setChecked(client, sessionId, action, checked) {
   }
 }
 
-async function waitForSelector(client, sessionId, action) {
+async function waitForSelector(
+  client: CdpClient,
+  sessionId: string,
+  action: NormalizedAction,
+): Promise<void> {
   const state = action.state || "visible";
   if (!["attached", "visible", "hidden", "detached"].includes(state)) {
     throw new Error(
@@ -891,7 +1161,7 @@ async function waitForSelector(client, sessionId, action) {
   const startedAt = Date.now();
   while (Date.now() - startedAt <= action.timeoutMs) {
     const encodedAction = JSON.stringify(action);
-    const result = await evaluate(
+    const result = await evaluate<SelectorState>(
       client,
       sessionId,
       `(() => {
@@ -919,17 +1189,25 @@ async function waitForSelector(client, sessionId, action) {
   throw new Error(`等待 selector 超时: ${action.selector}`);
 }
 
-async function scrollPage(client, sessionId, action) {
-  await evaluate(
+async function scrollPage(
+  client: CdpClient,
+  sessionId: string,
+  action: NormalizedAction,
+): Promise<void> {
+  await evaluate<unknown>(
     client,
     sessionId,
     `window.scrollBy(${JSON.stringify(action.x)}, ${JSON.stringify(action.y)})`,
   );
 }
 
-async function scrollToTarget(client, sessionId, action) {
+async function scrollToTarget(
+  client: CdpClient,
+  sessionId: string,
+  action: NormalizedAction,
+): Promise<void> {
   const encodedAction = JSON.stringify(action);
-  const ok = await evaluate(
+  const ok = await evaluate<boolean>(
     client,
     sessionId,
     `(() => {
@@ -960,8 +1238,11 @@ async function scrollToTarget(client, sessionId, action) {
   }
 }
 
-async function detectCaptcha(client, sessionId) {
-  return await evaluate(
+async function detectCaptcha(
+  client: CdpClient,
+  sessionId: string,
+): Promise<CaptchaResult> {
+  return await evaluate<CaptchaResult>(
     client,
     sessionId,
     `(() => {
@@ -992,7 +1273,10 @@ async function detectCaptcha(client, sessionId) {
   );
 }
 
-async function assertNoCaptcha(client, sessionId) {
+async function assertNoCaptcha(
+  client: CdpClient,
+  sessionId: string,
+): Promise<void> {
   const result = await detectCaptcha(client, sessionId);
   if (result && result.found) {
     throw new Error(
@@ -1001,7 +1285,11 @@ async function assertNoCaptcha(client, sessionId) {
   }
 }
 
-async function runSingleAction(client, sessionId, action) {
+async function runSingleAction(
+  client: CdpClient,
+  sessionId: string,
+  action: NormalizedAction,
+): Promise<void> {
   switch (action.type) {
     case "click":
       await clickElement(client, sessionId, action);
@@ -1025,7 +1313,7 @@ async function runSingleAction(client, sessionId, action) {
       await setChecked(client, sessionId, action, false);
       return;
     case "wait":
-      await wait(action.ms);
+      await wait(action.ms ?? 0);
       return;
     case "wait_for_selector":
       await waitForSelector(client, sessionId, action);
@@ -1040,11 +1328,15 @@ async function runSingleAction(client, sessionId, action) {
       await assertNoCaptcha(client, sessionId);
       return;
     default:
-      throw new Error(`不支持的 action.type: ${action.type}`);
+      throw new Error(`不支持的 action.type: ${String(action.type)}`);
   }
 }
 
-async function runActions(client, sessionId, params) {
+async function runActions(
+  client: CdpClient,
+  sessionId: string,
+  params: Params,
+): Promise<void> {
   if (!params.actions.length) {
     return;
   }
@@ -1079,13 +1371,13 @@ async function runActions(client, sessionId, params) {
       }
     } catch (error) {
       throw new Error(
-        `第 ${index + 1} 个 action(${action.type}) 执行失败: ${error.message || error}`,
+        `第 ${index + 1} 个 action(${action.type}) 执行失败: ${errorMessage(error)}`,
       );
     }
   }
 }
 
-function cleanText(text) {
+function cleanText(text: string): string {
   return String(text || "")
     .replace(/\u00a0/g, " ")
     .split("\n")
@@ -1095,8 +1387,12 @@ function cleanText(text) {
     .trim();
 }
 
-async function extractContent(client, sessionId, params) {
-  const data = await evaluate(
+async function extractContent(
+  client: CdpClient,
+  sessionId: string,
+  params: Params,
+): Promise<string> {
+  const data = await evaluate<ExtractedContent>(
     client,
     sessionId,
     `(() => {
@@ -1145,8 +1441,8 @@ async function extractContent(client, sessionId, params) {
     ? `${text.slice(0, params.maxChars)}\n\n[内容过长，已截断到 ${params.maxChars} 字]`
     : text;
   const headings = [...new Set(data.headings || [])].slice(0, 20);
-  const links = [];
-  const seenLinks = new Set();
+  const links: ExtractedLink[] = [];
+  const seenLinks = new Set<string>();
   for (const link of data.links || []) {
     const key = `${link.text}\t${link.href}`;
     if (seenLinks.has(key)) {
@@ -1183,17 +1479,27 @@ async function extractContent(client, sessionId, params) {
   return parts.join("\n\n");
 }
 
-async function getLayoutMetrics(client, sessionId) {
-  const metrics = await client.send("Page.getLayoutMetrics", {}, sessionId);
+async function getLayoutMetrics(
+  client: CdpClient,
+  sessionId: string,
+): Promise<LayoutContentSize> {
+  const metrics = await client.send<{
+    cssContentSize?: LayoutContentSize;
+    contentSize?: LayoutContentSize;
+  }>("Page.getLayoutMetrics", {}, sessionId);
   return (
     metrics.cssContentSize ||
     metrics.contentSize || { x: 0, y: 0, width: 0, height: 0 }
   );
 }
 
-async function getSelectorClip(client, sessionId, selector) {
+async function getSelectorClip(
+  client: CdpClient,
+  sessionId: string,
+  selector: string,
+): Promise<Rect> {
   const encodedSelector = JSON.stringify(selector);
-  const rect = await evaluate(
+  const rect = await evaluate<Rect | null>(
     client,
     sessionId,
     `(async () => {
@@ -1214,8 +1520,20 @@ async function getSelectorClip(client, sessionId, selector) {
   return rect;
 }
 
-async function getScreenshotClip(client, sessionId, params) {
+async function getScreenshotClip(
+  client: CdpClient,
+  sessionId: string,
+  params: Params,
+): Promise<ScreenshotClip> {
   if (params.screenshotMode === "region") {
+    if (
+      params.x === undefined ||
+      params.y === undefined ||
+      params.regionWidth === undefined ||
+      params.regionHeight === undefined
+    ) {
+      throw new Error("region 截图模式必须传 x、y、width、height");
+    }
     return {
       x: params.x,
       y: params.y,
@@ -1259,9 +1577,18 @@ async function getScreenshotClip(client, sessionId, params) {
   };
 }
 
-async function captureScreenshot(client, sessionId, params) {
+interface ScreenshotResult {
+  output: string;
+  clip: ScreenshotClip;
+}
+
+async function captureScreenshot(
+  client: CdpClient,
+  sessionId: string,
+  params: Params,
+): Promise<ScreenshotResult> {
   const clip = await getScreenshotClip(client, sessionId, params);
-  const result = await client.send(
+  const result = await client.send<{ data?: string }>(
     "Page.captureScreenshot",
     {
       format: "png",
@@ -1288,8 +1615,12 @@ async function captureScreenshot(client, sessionId, params) {
   return { output, clip };
 }
 
-function postJson(url, body, timeoutMs) {
-  return new Promise((resolve, reject) => {
+function postJson(
+  url: string,
+  body: Record<string, unknown>,
+  timeoutMs: number,
+): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
     const parsed = new URL(url);
     const payload = Buffer.from(JSON.stringify(body), "utf8");
     const request = http.request(
@@ -1304,13 +1635,14 @@ function postJson(url, body, timeoutMs) {
         },
         timeout: timeoutMs,
       },
-      (response) => {
-        const chunks = [];
-        response.on("data", (chunk) => chunks.push(chunk));
+      (response: IncomingMessage) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk: Buffer) => chunks.push(chunk));
         response.on("end", () => {
           const text = Buffer.concat(chunks).toString("utf8");
-          if (response.statusCode < 200 || response.statusCode >= 300) {
-            reject(new Error(`HTTP ${response.statusCode}: ${text}`));
+          const statusCode = response.statusCode ?? 0;
+          if (statusCode < 200 || statusCode >= 300) {
+            reject(new Error(`HTTP ${statusCode}: ${text}`));
             return;
           }
           resolve(text);
@@ -1326,7 +1658,10 @@ function postJson(url, body, timeoutMs) {
   });
 }
 
-async function maybeSendScreenshot(params, filePath) {
+async function maybeSendScreenshot(
+  params: Params,
+  filePath: string,
+): Promise<boolean> {
   if (params.send === "false") {
     return false;
   }
@@ -1349,7 +1684,7 @@ async function maybeSendScreenshot(params, filePath) {
   return true;
 }
 
-async function run() {
+async function run(): Promise<void> {
   const params = normalizeParams(parseArgs(process.argv.slice(2)));
   const browser = await launchChromium(params);
   const client = new CdpClient(browser.websocketUrl);
@@ -1368,12 +1703,12 @@ async function run() {
     const sent = await maybeSendScreenshot(params, screenshot.output);
     if (sent) {
       const suffix = screenshot.clip.truncated
-        ? `，页面过长，已截取前 ${Math.round(screenshot.clip.height)}px / ${Math.round(screenshot.clip.rawHeight)}px`
+        ? `，页面过长，已截取前 ${Math.round(screenshot.clip.height)}px / ${Math.round(screenshot.clip.rawHeight ?? screenshot.clip.height)}px`
         : "";
       stdout(`页面截图已发送${suffix}`);
     } else {
       const suffix = screenshot.clip.truncated
-        ? `（页面过长，已截取前 ${Math.round(screenshot.clip.height)}px / ${Math.round(screenshot.clip.rawHeight)}px）`
+        ? `（页面过长，已截取前 ${Math.round(screenshot.clip.height)}px / ${Math.round(screenshot.clip.rawHeight ?? screenshot.clip.height)}px）`
         : "";
       stdout(`页面截图已保存: ${screenshot.output}${suffix}`);
     }
@@ -1383,7 +1718,9 @@ async function run() {
   }
 }
 
-run().catch((error) => {
-  stdout(`执行失败: ${error && error.stack ? error.stack : error}`);
+run().catch((error: unknown) => {
+  stdout(
+    `执行失败: ${error instanceof Error && error.stack ? error.stack : String(error)}`,
+  );
   process.exit(1);
 });
