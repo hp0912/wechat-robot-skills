@@ -16,6 +16,7 @@ const DEFAULT_TIMEOUT_MS = 45000;
 const DEFAULT_MAX_CHARS = 16000;
 const DEFAULT_ACTION_TIMEOUT_MS = 15000;
 const DEFAULT_ACTION_WAIT_MS = 300;
+const DEFAULT_TIMEZONE = "Asia/Shanghai";
 
 const ACTION_TYPES = new Set<string>([
   "click",
@@ -303,7 +304,9 @@ function normalizeAction(
     throw new Error(`第 ${index + 1} 个 press action 必须提供 key`);
   }
   if (type === "remove" && !action.selector && !action.text) {
-    throw new Error(`第 ${index + 1} 个 remove action 必须提供 selector 或 text`);
+    throw new Error(
+      `第 ${index + 1} 个 remove action 必须提供 selector 或 text`,
+    );
   }
   if (type === "wait_for_selector" && !action.selector) {
     throw new Error("wait_for_selector action 必须提供 selector");
@@ -811,6 +814,14 @@ async function createPage(client: CdpClient, params: Params): Promise<string> {
       height: params.viewportHeight,
       deviceScaleFactor: 1,
       mobile: false,
+    },
+    sessionId,
+  );
+  await client.send(
+    "Emulation.setTimezoneOverride",
+    {
+      timezoneId:
+        process.env.WEB_PAGE_TIMEZONE || process.env.TZ || DEFAULT_TIMEZONE,
     },
     sessionId,
   );
