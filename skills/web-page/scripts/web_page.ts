@@ -25,11 +25,11 @@ const ACTION_TYPES = new Set<string>([
   "select",
   "check",
   "uncheck",
+  "remove",
   "wait",
   "wait_for_selector",
   "scroll",
   "scroll_to",
-  "captcha_check",
 ]);
 
 type ActionType =
@@ -40,11 +40,11 @@ type ActionType =
   | "select"
   | "check"
   | "uncheck"
+  | "remove"
   | "wait"
   | "wait_for_selector"
   | "scroll"
-  | "scroll_to"
-  | "captcha_check";
+  | "scroll_to";
 
 type RawArgs = Record<string, string>;
 
@@ -83,7 +83,6 @@ interface Params {
   maxFullHeight: number;
   actionTimeoutMs: number;
   actions: NormalizedAction[];
-  captchaStrategy: "detect" | "ignore";
   output: string;
   send: "auto" | "true" | "false";
 }
@@ -98,11 +97,6 @@ interface ElementPoint {
   x: number;
   y: number;
   description: string;
-}
-
-interface CaptchaResult {
-  found: boolean;
-  signals: string[];
 }
 
 interface ExtractedLink {
@@ -308,6 +302,9 @@ function normalizeAction(
   if (type === "press" && !action.key) {
     throw new Error(`第 ${index + 1} 个 press action 必须提供 key`);
   }
+  if (type === "remove" && !action.selector && !action.text) {
+    throw new Error(`第 ${index + 1} 个 remove action 必须提供 selector 或 text`);
+  }
   if (type === "wait_for_selector" && !action.selector) {
     throw new Error("wait_for_selector action 必须提供 selector");
   }
@@ -396,8 +393,6 @@ function normalizeParams(raw: RawArgs): Params {
     DEFAULT_ACTION_TIMEOUT_MS,
   );
   const actions = parseActions(raw, actionTimeoutMs);
-  const captchaStrategy =
-    raw.captcha_strategy || (actions.length ? "detect" : "ignore");
 
   if (viewportWidth <= 0 || viewportHeight <= 0) {
     throw new Error("视口 width 和 height 必须大于 0");
@@ -416,9 +411,6 @@ function normalizeParams(raw: RawArgs): Params {
   }
   if (actionTimeoutMs <= 0) {
     throw new Error("action_timeout_ms 必须大于 0");
-  }
-  if (!["detect", "ignore"].includes(captchaStrategy)) {
-    throw new Error("captcha_strategy 只能是 detect 或 ignore");
   }
 
   const send = raw.send || "auto";
@@ -450,7 +442,6 @@ function normalizeParams(raw: RawArgs): Params {
     maxFullHeight,
     actionTimeoutMs,
     actions,
-    captchaStrategy: captchaStrategy as Params["captchaStrategy"],
     output: raw.output || "",
     send: send as Params["send"],
   };
@@ -1147,6 +1138,47 @@ async function setChecked(
   }
 }
 
+async function removeElement(
+  client: CdpClient,
+  sessionId: string,
+  action: NormalizedAction,
+): Promise<void> {
+  const encodedAction = JSON.stringify(action);
+  const ok = await evaluate<boolean>(
+    client,
+    sessionId,
+    `(() => {
+    const action = ${encodedAction};
+    const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+    const textOf = (el) => normalize([
+      el.innerText,
+      el.value,
+      el.getAttribute('aria-label'),
+      el.getAttribute('title'),
+      el.getAttribute('alt'),
+      el.getAttribute('placeholder'),
+    ].filter(Boolean).join(' '));
+    const matchesText = (el) => {
+      if (!action.text) return true;
+      const haystack = textOf(el);
+      return action.exact ? haystack === action.text : haystack.includes(action.text);
+    };
+    const candidates = action.selector
+      ? Array.from(document.querySelectorAll(action.selector))
+      : Array.from(document.querySelectorAll('body *'));
+    const matches = candidates.filter((el) => matchesText(el));
+    const el = matches[action.index || 0];
+    if (!el) return false;
+    el.remove();
+    return true;
+  })()`,
+  );
+  if (!ok) {
+    const target = action.selector || `text=${action.text}`;
+    throw new Error(`未找到可删除元素: ${target}`);
+  }
+}
+
 async function waitForSelector(
   client: CdpClient,
   sessionId: string,
@@ -1238,53 +1270,6 @@ async function scrollToTarget(
   }
 }
 
-async function detectCaptcha(
-  client: CdpClient,
-  sessionId: string,
-): Promise<CaptchaResult> {
-  return await evaluate<CaptchaResult>(
-    client,
-    sessionId,
-    `(() => {
-    const signals = [];
-    const add = (value) => {
-      if (value && !signals.includes(value)) signals.push(value);
-    };
-    const text = (document.body && document.body.innerText || '').replace(/\s+/g, ' ').slice(0, 20000);
-    const lowerText = text.toLowerCase();
-    if (/captcha|recaptcha|hcaptcha|turnstile|verify you are human|security check/.test(lowerText)) add('页面文本疑似包含人机验证');
-    if (/验证码|人机验证|安全验证|滑块|拖动滑块|请完成验证|行为验证/.test(text)) add('页面文本疑似包含中文验证码提示');
-    for (const el of Array.from(document.querySelectorAll('iframe, input, div, canvas'))) {
-      const value = [
-        el.getAttribute('src'),
-        el.getAttribute('title'),
-        el.getAttribute('name'),
-        el.getAttribute('id'),
-        el.getAttribute('class'),
-        el.getAttribute('aria-label'),
-        el.getAttribute('data-sitekey'),
-      ].filter(Boolean).join(' ').toLowerCase();
-      if (/captcha|recaptcha|hcaptcha|turnstile|geetest|aliyun|tencent|cloudflare/.test(value)) {
-        add('页面元素疑似验证码组件');
-      }
-    }
-    return { found: signals.length > 0, signals };
-  })()`,
-  );
-}
-
-async function assertNoCaptcha(
-  client: CdpClient,
-  sessionId: string,
-): Promise<void> {
-  const result = await detectCaptcha(client, sessionId);
-  if (result && result.found) {
-    throw new Error(
-      `页面疑似出现验证码/人机验证，已停止自动化操作: ${(result.signals || []).join("；") || "未知信号"}。请改用人工验证后的页面、降低访问频率，或设置 captcha_strategy=ignore 仅继续非验证码相关操作。`,
-    );
-  }
-}
-
 async function runSingleAction(
   client: CdpClient,
   sessionId: string,
@@ -1312,6 +1297,9 @@ async function runSingleAction(
     case "uncheck":
       await setChecked(client, sessionId, action, false);
       return;
+    case "remove":
+      await removeElement(client, sessionId, action);
+      return;
     case "wait":
       await wait(action.ms ?? 0);
       return;
@@ -1323,9 +1311,6 @@ async function runSingleAction(
       return;
     case "scroll_to":
       await scrollToTarget(client, sessionId, action);
-      return;
-    case "captcha_check":
-      await assertNoCaptcha(client, sessionId);
       return;
     default:
       throw new Error(`不支持的 action.type: ${String(action.type)}`);
@@ -1344,12 +1329,6 @@ async function runActions(
   for (let index = 0; index < params.actions.length; index += 1) {
     const action = params.actions[index];
     try {
-      if (
-        params.captchaStrategy === "detect" &&
-        action.type !== "captcha_check"
-      ) {
-        await assertNoCaptcha(client, sessionId);
-      }
       const loadEvent = action.waitForNavigation
         ? client
             .waitForEvent("Page.loadEventFired", sessionId, action.timeoutMs)
@@ -1365,9 +1344,6 @@ async function runActions(
       }
       if (action.waitMsAfter > 0) {
         await wait(action.waitMsAfter);
-      }
-      if (params.captchaStrategy === "detect") {
-        await assertNoCaptcha(client, sessionId);
       }
     } catch (error) {
       throw new Error(
