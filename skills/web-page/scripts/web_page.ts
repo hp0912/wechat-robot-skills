@@ -8,6 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import type { IncomingMessage } from "node:http";
+import { parseArgs as parseNodeArgs } from "node:util";
 
 const DEFAULT_VIEWPORT_WIDTH = 1365;
 const DEFAULT_VIEWPORT_HEIGHT = 900;
@@ -47,7 +48,30 @@ type ActionType =
   | "scroll"
   | "scroll_to";
 
-type RawArgs = Record<string, string>;
+type RawArgKey =
+  | "url"
+  | "mode"
+  | "screenshot_mode"
+  | "selector"
+  | "x"
+  | "y"
+  | "width"
+  | "height"
+  | "viewport_width"
+  | "viewport_height"
+  | "wait_ms"
+  | "timeout_ms"
+  | "max_chars"
+  | "max_full_height"
+  | "action_timeout_ms"
+  | "actions"
+  | "actions_file"
+  | "region_width"
+  | "region_height"
+  | "output"
+  | "send";
+
+type RawArgs = Partial<Record<RawArgKey, string>>;
 
 interface NormalizedAction {
   type: ActionType;
@@ -139,33 +163,40 @@ function stdout(message: string): void {
   process.stdout.write(`${message}\n`);
 }
 
-function parseArgs(argv: string[]): RawArgs {
-  const result: RawArgs = {};
-  for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
-    if (!token.startsWith("--")) {
-      throw new Error(`存在不支持的参数: ${token}`);
-    }
-
-    const equalIndex = token.indexOf("=");
-    let key = token.slice(2);
-    let value: string;
-    if (equalIndex >= 0) {
-      key = token.slice(2, equalIndex);
-      value = token.slice(equalIndex + 1);
-    } else {
-      const next = argv[index + 1];
-      if (next === undefined || next.startsWith("--")) {
-        value = "true";
-      } else {
-        value = next;
-        index += 1;
-      }
-    }
-
-    result[key] = value;
+function parseCliArgs(argv: string[]): RawArgs {
+  try {
+    const parsed = parseNodeArgs({
+      args: argv,
+      allowPositionals: false,
+      strict: true,
+      options: {
+        url: { type: "string" },
+        mode: { type: "string" },
+        screenshot_mode: { type: "string" },
+        selector: { type: "string" },
+        x: { type: "string" },
+        y: { type: "string" },
+        width: { type: "string" },
+        height: { type: "string" },
+        viewport_width: { type: "string" },
+        viewport_height: { type: "string" },
+        wait_ms: { type: "string" },
+        timeout_ms: { type: "string" },
+        max_chars: { type: "string" },
+        max_full_height: { type: "string" },
+        action_timeout_ms: { type: "string" },
+        actions: { type: "string" },
+        actions_file: { type: "string" },
+        region_width: { type: "string" },
+        region_height: { type: "string" },
+        output: { type: "string" },
+        send: { type: "string" },
+      },
+    });
+    return parsed.values as RawArgs;
+  } catch (error) {
+    throw new Error(`命令行参数解析失败: ${errorMessage(error)}`);
   }
-  return result;
 }
 
 function parseNumber(
@@ -421,11 +452,12 @@ function normalizeParams(raw: RawArgs): Params {
     throw new Error("send 只能是 auto、true 或 false");
   }
 
+  const selector = (raw.selector || "").trim();
   const params: Params = {
     url,
     mode: mode as Params["mode"],
     screenshotMode: screenshotMode as Params["screenshotMode"],
-    selector: raw.selector || "",
+    selector,
     x: parseNumber(raw.x, "x"),
     y: parseNumber(raw.y, "y"),
     regionWidth: parseNumber(
@@ -1715,7 +1747,7 @@ async function maybeSendScreenshot(
 }
 
 async function run(): Promise<void> {
-  const params = normalizeParams(parseArgs(process.argv.slice(2)));
+  const params = normalizeParams(parseCliArgs(process.argv.slice(2)));
   const browser = await launchChromium(params);
   const client = new CdpClient(browser.websocketUrl);
   try {
