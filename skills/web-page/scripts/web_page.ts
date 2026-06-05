@@ -807,6 +807,49 @@ async function createPage(client: CdpClient, params: Params): Promise<string> {
   await client.send("Page.enable", {}, sessionId);
   await client.send("Runtime.enable", {}, sessionId);
   await client.send("Network.enable", {}, sessionId);
+  // 注入反 headless 检测脚本，在页面任何 JS 执行前运行
+  await client.send(
+    "Page.addScriptToEvaluateOnNewDocument",
+    {
+      source: `
+// --- 反 headless 检测 ---
+// 1. 抹掉 navigator.webdriver（正常 Chrome 为 undefined）
+Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+
+// 2. 伪造 plugins（正常 Chrome 有 PDF Viewer 等内置插件）
+Object.defineProperty(navigator, 'plugins', {
+  get: () => {
+    const p = [
+      { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+      { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
+      { name: 'Native Client', filename: 'internal-nacl-plugin', description: '' },
+    ];
+    p.item = (i) => p[i] || null;
+    p.namedItem = (name) => p.find((x) => x.name === name) || null;
+    p.refresh = () => {};
+    Object.setPrototypeOf(p, PluginArray.prototype);
+    return p;
+  },
+});
+
+// 3. 补全 window.chrome（正常 Chrome 都有这个对象）
+if (!window.chrome) {
+  window.chrome = { runtime: {}, loadTimes: () => {}, csi: () => {}, app: {} };
+}
+
+// 4. navigator.languages
+Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh', 'en'] });
+
+// 5. 权限查询不暴露自动化
+const _query = window.navigator.permissions.query.bind(window.navigator.permissions);
+window.navigator.permissions.query = (params) =>
+  params.name === 'notifications'
+    ? Promise.resolve({ state: Notification.permission })
+    : _query(params);
+`.trim(),
+    },
+    sessionId,
+  );
   await client.send(
     "Emulation.setDeviceMetricsOverride",
     {
