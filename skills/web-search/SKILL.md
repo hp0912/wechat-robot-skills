@@ -10,9 +10,9 @@ argument-hint: "需要 query"
 
 这是一个网页搜索技能。
 
-技能通过浏览器能力访问以下固定搜索接口，并从返回 JSON 中读取结果：
+技能通过浏览器能力访问下面的搜索引擎，返回网页结果：
 
-`https://so.houhoukang.com/search?format=json&q=`
+`https://so.houhoukang.com/search?q=`
 
 `q` 参数是搜索关键词。执行时必须对关键词进行 URL 编码后再拼接到 `q=` 后面。
 
@@ -42,14 +42,10 @@ argument-hint: "需要 query"
 1. 提取用户搜索词 `query`。
 2. 对 `query` 做 URL 编码，构造搜索地址：
 
-   `https://so.houhoukang.com/search?format=json&q=<编码后的query>`
+   `https://so.houhoukang.com/search?q=<编码后的query>`
 
-3. 使用浏览器技能访问该地址并读取 JSON 响应。
-4. 解析响应中的 `results` 数组，重点字段：
-   - `title`
-   - `content`
-   - `url`
-5. 如果列表数据不够详细，无法获得有效的信息，可以继续访问每条结果的 `url` 获取更多内容。
+3. 使用浏览器技能访问该地址并读取网页内容。
+4. 如果列表数据不够详细，无法获得有效的信息，可以继续访问搜索结果链接获取更多内容。
 
 ## 回复要求
 
