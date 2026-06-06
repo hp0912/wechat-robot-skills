@@ -75,8 +75,13 @@ def _expand_json_array_values(values: list[str], label: str) -> list[str]:
         stripped = value.strip()
         if not stripped:
             continue
-        if stripped.startswith("["):
-            parsed = json.loads(stripped)
+        if stripped.startswith("[") and stripped.endswith("]"):
+            try:
+                parsed = json.loads(stripped)
+            except json.JSONDecodeError:
+                # 不是合法 JSON（例如 [开心]），当作普通名称
+                expanded.append(stripped)
+                continue
             if not isinstance(parsed, list):
                 raise ValueError(f"{label} 必须是字符串数组")
             for item in parsed:
