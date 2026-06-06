@@ -60,7 +60,7 @@
 
 ```
 
-**发送视频的时候也可以调用 Agent 接口**
+**发送视频的时候可以调用 Agent 接口**
 
 ```
 [POST] http://127.0.0.1:{ROBOT_WECHAT_CLIENT_PORT}/api/v1/robot/message/send/video/url
@@ -73,7 +73,7 @@
 }
 ```
 
-**发送语音的时候也可以调用 Agent 接口**
+**发送语音的时候可以调用 Agent 接口**
 
 ```
 [POST] http://127.0.0.1:{ROBOT_WECHAT_CLIENT_PORT}/api/v1/robot/message/send/voice
@@ -105,5 +105,19 @@
   "to_wxid": "{{ROBOT_FROM_WX_ID}}",
   "content": "", // 你需要发送的文本内容
   "at": [], // 字符串数组，你要艾特的人的微信 id
+}
+```
+
+**Agent 发送表情消息接口**
+
+```
+[POST] http://127.0.0.1:{ROBOT_WECHAT_CLIENT_PORT}/api/v1/robot/message/send/emoji
+
+请求体 Body:
+
+{
+  "to_wxid": "{{ROBOT_FROM_WX_ID}}",
+  "Md5": "xxxxxxx", // 表情 md5
+  "TotalLen": 263, // 表情长度
 }
 ```
