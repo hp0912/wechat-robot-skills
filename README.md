@@ -30,30 +30,7 @@
 
 - ROBOT_REF_MESSAGE_ID: 如果是引用消息，则是引用的消息的 ID
 
-**需要发送图片的时候可以在控制台输出如下内容**
-
-```
-<wechat-robot-image-url>图片URL1</wechat-robot-image-url>
-<wechat-robot-image-url>图片URL2</wechat-robot-image-url>
-<wechat-robot-image-url>图片URL3</wechat-robot-image-url>
-<wechat-robot-image-url>图片URL4</wechat-robot-image-url>
-```
-
-**需要发送视频的时候可以在控制台输出如下内容**
-
-```
-<wechat-robot-video-url>视频URL1</wechat-robot-video-url>
-<wechat-robot-video-url>视频URL2</wechat-robot-video-url>
-```
-
-**需要发语音的时候可以在控制台输出如下内容**
-
-```
-<wechat-robot-voice-url>语音URL1</wechat-robot-voice-url>
-<wechat-robot-voice-url>语音URL2</wechat-robot-voice-url>
-```
-
-**发送图片的时候也可以调用 Agent 接口**
+**发送图片的时候可以调用 Agent 接口**
 
 1. 发送远程图片地址
 
