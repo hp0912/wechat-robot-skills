@@ -18,6 +18,8 @@ const DEFAULT_MAX_CHARS = 16000;
 const DEFAULT_ACTION_TIMEOUT_MS = 15000;
 const DEFAULT_ACTION_WAIT_MS = 300;
 const DEFAULT_TIMEZONE = "Asia/Shanghai";
+const WEIXIN_USER_AGENT =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.62(0x18003e2f) NetType/WIFI Language/zh_CN";
 
 const ACTION_TYPES = new Set<string>([
   "click",
@@ -383,6 +385,15 @@ function validateUrl(value: string): string {
     throw new Error("网页链接必须是 http 或 https 地址");
   }
   return parsed.toString();
+}
+
+function shouldUseWeixinUserAgent(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    return hostname === "weixin.qq.com" || hostname.endsWith(".weixin.qq.com");
+  } catch {
+    return false;
+  }
 }
 
 function normalizeParams(raw: RawArgs): Params {
@@ -839,6 +850,15 @@ async function createPage(client: CdpClient, params: Params): Promise<string> {
   await client.send("Page.enable", {}, sessionId);
   await client.send("Runtime.enable", {}, sessionId);
   await client.send("Network.enable", {}, sessionId);
+  if (shouldUseWeixinUserAgent(params.url)) {
+    await client.send(
+      "Emulation.setUserAgentOverride",
+      {
+        userAgent: WEIXIN_USER_AGENT,
+      },
+      sessionId,
+    );
+  }
   // 注入反 headless 检测脚本，在页面任何 JS 执行前运行
   await client.send(
     "Page.addScriptToEvaluateOnNewDocument",
