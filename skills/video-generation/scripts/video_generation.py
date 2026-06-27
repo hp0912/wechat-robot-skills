@@ -231,8 +231,10 @@ def call_jimeng_video(
         timeout=300,
     )
 
+    data = resp.get("data") or []
+
     urls: list[str] = []
-    for item in resp.get("data", []):
+    for item in data:
         if isinstance(item, dict):
             url = item.get("url")
             if isinstance(url, str) and url.strip():

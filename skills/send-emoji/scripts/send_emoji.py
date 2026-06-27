@@ -51,6 +51,14 @@ EMOJI_MAP: dict[str, dict[str, object]] = {
         "Md5": "4aae9dbe27651859ed526bcaad5f1f34",
         "TotalLen": 19788,
     },
+    "[禁止色色]": {
+        "Md5": "d4509efdb82cf39c9c5eabc67c7b03e1",
+        "TotalLen": 7739250,
+    },
+    "[打你]": {
+        "Md5": "b7f19049a1e3f5814c976fb43934fd04",
+        "TotalLen": 2093382,
+    },
 }
 
 
