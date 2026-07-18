@@ -1,0 +1,4 @@
+interface:
+  display_name: "创建定时任务"
+  short_description: "根据当前微信会话创建一次性提醒、每日、每周或法定工作日任务"
+  default_prompt: "使用 $create-scheduled-task 在 10 分钟后提醒我喝水。"
