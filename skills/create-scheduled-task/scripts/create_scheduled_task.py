@@ -10,9 +10,10 @@ import re
 import socket
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
-from typing import Any, NoReturn
+from typing import Any, Literal, NoReturn, TypedDict
 
 try:
     from zoneinfo import ZoneInfo
@@ -23,6 +24,19 @@ sys.stderr = sys.stdout
 
 SCHEDULE_TYPES = ("delay_once", "daily", "weekly", "cn_workday")
 MAX_DELAY_SECONDS = 24 * 60 * 60
+MENTION_ALL_WECHAT_ID = "notify@all"
+
+
+class ScheduledTaskTarget(TypedDict):
+    wechat_id: str
+    type: Literal["chat_room", "friend"]
+    mention_wechat_ids: list[str]
+
+
+class ScheduledTaskCreator(TypedDict):
+    type: Literal["chat_room", "friend"]
+    wechat_id: str
+    chat_room_id: str
 
 
 class AmbiguousCreateError(RuntimeError):
@@ -61,6 +75,10 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--time", default="")
     parser.add_argument("--weekday", action="append", default=[])
     parser.add_argument("--weekdays", action="append", default=[])
+    parser.add_argument("--mention", action="append", default=[])
+    parser.add_argument("--mentions", action="append", default=[])
+    parser.add_argument("--mention-all", "--all", dest="mention_all", action="store_true")
+    parser.add_argument("--no-mention", action="store_true")
 
     delay = parser.add_mutually_exclusive_group()
     delay.add_argument("--delay-seconds", "--delay_seconds", dest="delay_seconds", type=int)
@@ -79,15 +97,19 @@ def _require_env(name: str) -> str:
     return value
 
 
-def _conversation_identity() -> tuple[dict[str, str], dict[str, str], str]:
+def _conversation_identity() -> tuple[ScheduledTaskTarget, ScheduledTaskCreator, str]:
     from_wechat_id = _require_env("ROBOT_FROM_WX_ID")
     sender_wechat_id = os.environ.get("ROBOT_SENDER_WX_ID", "").strip()
 
     if from_wechat_id.endswith("@chatroom"):
         if not sender_wechat_id:
             raise ValueError("当前群聊缺少消息发送人微信 ID")
-        target = {"wechat_id": from_wechat_id, "type": "chat_room"}
-        creator = {
+        target: ScheduledTaskTarget = {
+            "wechat_id": from_wechat_id,
+            "type": "chat_room",
+            "mention_wechat_ids": [],
+        }
+        creator: ScheduledTaskCreator = {
             "type": "chat_room",
             "wechat_id": sender_wechat_id,
             "chat_room_id": from_wechat_id,
@@ -95,7 +117,11 @@ def _conversation_identity() -> tuple[dict[str, str], dict[str, str], str]:
         return target, creator, "当前群聊"
 
     creator_wechat_id = sender_wechat_id or from_wechat_id
-    target = {"wechat_id": from_wechat_id, "type": "friend"}
+    target = {
+        "wechat_id": from_wechat_id,
+        "type": "friend",
+        "mention_wechat_ids": [],
+    }
     creator = {"type": "friend", "wechat_id": creator_wechat_id, "chat_room_id": ""}
     return target, creator, "当前私聊"
 
@@ -136,6 +162,31 @@ def _parse_weekdays(values: list[str]) -> list[int]:
     result = sorted(set(parsed))
     if not result:
         raise ValueError("每周任务至少需要一个星期")
+    return result
+
+
+def _parse_mentions(mention_values: list[str], mentions_values: list[str]) -> list[str]:
+    parsed = [value.strip() for value in mention_values if value.strip()]
+    for raw in mentions_values:
+        text = raw.strip()
+        if not text:
+            continue
+        try:
+            items = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"mentions JSON 格式错误: {exc.msg}") from exc
+        if not isinstance(items, list) or any(not isinstance(item, str) for item in items):
+            raise ValueError("mentions 必须是字符串 JSON 数组")
+
+        parsed.extend(item.strip() for item in items if item.strip())
+
+    result: list[str] = []
+    seen: set[str] = set()
+    for mention in parsed:
+        key = mention.casefold()
+        if key not in seen:
+            seen.add(key)
+            result.append(mention)
     return result
 
 
@@ -201,7 +252,124 @@ def _build_schedule_config(args: argparse.Namespace, now: datetime) -> dict[str,
     return {"time": clock}
 
 
-def _build_payload(args: argparse.Namespace) -> tuple[dict[str, Any], str]:
+def _member_text(member: dict[str, Any], field: str) -> str:
+    value = member.get(field)
+    return str(value).strip() if value is not None else ""
+
+
+def _member_candidates(data: Any, chat_room_id: str) -> list[dict[str, Any]]:
+    if not isinstance(data, list):
+        raise RuntimeError("群成员查询接口返回的数据不是数组")
+
+    candidates: list[dict[str, Any]] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        if _member_text(item, "chat_room_id") != chat_room_id:
+            continue
+        if item.get("is_leaved") not in (None, False, 0):
+            continue
+        if _member_text(item, "wechat_id"):
+            candidates.append(item)
+    return candidates
+
+
+def _describe_member(member: dict[str, Any]) -> str:
+    remark = _member_text(member, "remark")
+    nickname = _member_text(member, "nickname")
+    if remark and nickname and remark != nickname:
+        return f"{remark}（昵称：{nickname}）"
+    return remark or nickname or _member_text(member, "wechat_id")
+
+
+def _pick_unique_member(
+    mention: str,
+    candidates: list[dict[str, Any]],
+) -> dict[str, Any]:
+    keyword = mention.casefold()
+    match_groups = [
+        [item for item in candidates if _member_text(item, "remark").casefold() == keyword],
+        [item for item in candidates if _member_text(item, "nickname").casefold() == keyword],
+        [item for item in candidates if keyword in _member_text(item, "remark").casefold()],
+        [item for item in candidates if keyword in _member_text(item, "nickname").casefold()],
+    ]
+
+    for matches in match_groups:
+        unique: dict[str, dict[str, Any]] = {}
+        for item in matches:
+            unique.setdefault(_member_text(item, "wechat_id"), item)
+        if len(unique) == 1:
+            return next(iter(unique.values()))
+        if len(unique) > 1:
+            labels = "、".join(_describe_member(item) for item in list(unique.values())[:5])
+            raise ValueError(
+                f"群成员“{mention}”匹配到多人（{labels}），请使用唯一的完整群备注或昵称"
+            )
+
+    raise ValueError(f"未找到当前群内未退群成员：“{mention}”")
+
+
+def _get_json(url: str, timeout: int = 15) -> dict[str, Any]:
+    request = urllib.request.Request(url, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            response_text = response.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        error_body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"查询群成员接口返回 HTTP {exc.code}: {error_body}") from exc
+    except (urllib.error.URLError, TimeoutError, socket.timeout, ConnectionError) as exc:
+        raise RuntimeError(f"查询群成员失败：{exc}") from exc
+
+    if not response_text.strip():
+        raise RuntimeError("群成员查询接口返回空响应")
+    try:
+        result = json.loads(response_text)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("群成员查询接口返回了无效 JSON") from exc
+    if not isinstance(result, dict):
+        raise RuntimeError("群成员查询接口响应不是 JSON 对象")
+    return result
+
+
+def _resolve_mentions(
+    client_port: str,
+    chat_room_id: str,
+    mentions: list[str],
+) -> list[dict[str, str]]:
+    resolved: list[dict[str, str]] = []
+    seen_wechat_ids: set[str] = set()
+    for mention in mentions:
+        query = urllib.parse.urlencode({"chat_room_id": chat_room_id, "keyword": mention})
+        url = (
+            f"http://127.0.0.1:{client_port}"
+            f"/api/v1/robot/chat-room/not-left-members?{query}"
+        )
+        response = _get_json(url)
+        if response.get("code") != 200:
+            raise RuntimeError(str(response.get("message") or "查询群成员失败"))
+        member = _pick_unique_member(
+            mention,
+            _member_candidates(response.get("data"), chat_room_id),
+        )
+        wechat_id = _member_text(member, "wechat_id")
+        if wechat_id in seen_wechat_ids:
+            continue
+        seen_wechat_ids.add(wechat_id)
+        resolved.append(
+            {
+                "query": mention,
+                "wechat_id": wechat_id,
+                "display_name": _member_text(member, "remark")
+                or _member_text(member, "nickname")
+                or mention,
+            }
+        )
+    return resolved
+
+
+def _build_payload(
+    args: argparse.Namespace,
+) -> tuple[dict[str, Any], str, dict[str, Any]]:
     name = args.name.strip()
     content = args.content.strip()
     ai_prompt = args.ai_prompt.strip()
@@ -216,6 +384,37 @@ def _build_payload(args: argparse.Namespace) -> tuple[dict[str, Any], str]:
         raise ValueError("content 和 ai-prompt 至少需要提供一项")
 
     target, creator, target_label = _conversation_identity()
+    mentions = _parse_mentions(args.mention, args.mentions)
+    mention_mode_count = int(bool(mentions)) + int(args.mention_all) + int(args.no_mention)
+    if mention_mode_count > 1:
+        raise ValueError("mention-all、no-mention 和 mention/mentions 不能同时使用")
+
+    mention_summary: dict[str, Any]
+    if args.mention_all:
+        if target["type"] != "chat_room":
+            raise ValueError("当前会话不是群聊，不能在定时任务中艾特所有人")
+        target["mention_wechat_ids"] = [MENTION_ALL_WECHAT_ID]
+        mention_summary = {"mode": "all", "display_names": ["所有人"]}
+    elif mentions:
+        if target["type"] != "chat_room":
+            raise ValueError("当前会话不是群聊，不能在定时任务中艾特群成员")
+        client_port = _require_env("ROBOT_WECHAT_CLIENT_PORT")
+        resolved_mentions = _resolve_mentions(client_port, target["wechat_id"], mentions)
+        target["mention_wechat_ids"] = [item["wechat_id"] for item in resolved_mentions]
+        mention_summary = {
+            "mode": "custom",
+            "display_names": [item["display_name"] for item in resolved_mentions],
+        }
+    elif args.no_mention:
+        target["mention_wechat_ids"] = []
+        mention_summary = {"mode": "none", "display_names": []}
+    elif target["type"] == "chat_room":
+        target["mention_wechat_ids"] = [creator["wechat_id"]]
+        mention_summary = {"mode": "creator", "display_names": []}
+    else:
+        target["mention_wechat_ids"] = []
+        mention_summary = {"mode": "none", "display_names": []}
+
     schedule_config = _build_schedule_config(args, datetime.now(SHANGHAI_TZ))
     payload: dict[str, Any] = {
         "name": name,
@@ -228,7 +427,7 @@ def _build_payload(args: argparse.Namespace) -> tuple[dict[str, Any], str]:
         "ai_prompt": ai_prompt,
         "creator": creator,
     }
-    return payload, target_label
+    return payload, target_label, mention_summary
 
 
 def _post_json(url: str, payload: dict[str, Any], timeout: int = 30) -> dict[str, Any]:
@@ -293,7 +492,11 @@ def _format_next_run(timestamp: Any) -> str | None:
     return datetime.fromtimestamp(value, SHANGHAI_TZ).strftime("%Y-%m-%d %H:%M:%S Asia/Shanghai")
 
 
-def _success_output(data: dict[str, Any], target_label: str) -> dict[str, Any]:
+def _success_output(
+    data: dict[str, Any],
+    target_label: str,
+    mention_summary: dict[str, Any],
+) -> dict[str, Any]:
     targets = data.get("targets")
     first_target = targets[0] if isinstance(targets, list) and targets else {}
     if not isinstance(first_target, dict):
@@ -312,6 +515,7 @@ def _success_output(data: dict[str, Any], target_label: str) -> dict[str, Any]:
             "uses_ai_prompt": bool(data.get("ai_prompt")),
             "target_label": target_label,
             "target_type": first_target.get("type"),
+            "mention": mention_summary,
         },
     }
 
@@ -319,12 +523,18 @@ def _success_output(data: dict[str, Any], target_label: str) -> dict[str, Any]:
 def main(argv: list[str]) -> int:
     try:
         args = _parse_args(argv)
-        payload, target_label = _build_payload(args)
+        payload, target_label, mention_summary = _build_payload(args)
 
         if args.dry_run:
             print(
                 json.dumps(
-                    {"ok": True, "dry_run": True, "target_label": target_label, "payload": payload},
+                    {
+                        "ok": True,
+                        "dry_run": True,
+                        "target_label": target_label,
+                        "mention": mention_summary,
+                        "payload": payload,
+                    },
                     ensure_ascii=False,
                     indent=2,
                 )
@@ -335,7 +545,13 @@ def main(argv: list[str]) -> int:
         url = f"http://127.0.0.1:{client_port}/api/v1/robot/scheduled-tasks"
         response = _post_json(url, payload)
         data = _unwrap_api_response(response)
-        print(json.dumps(_success_output(data, target_label), ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                _success_output(data, target_label, mention_summary),
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
         return 0
     except (ValueError, RuntimeError) as exc:
         print(f"创建定时任务失败：{exc}")
