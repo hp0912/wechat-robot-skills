@@ -1,7 +1,6 @@
 ---
 name: stocks
 description: "当用户说「今日大盘」或「今天股票行情」或「今天 A 股涨跌情况」时触发。"
-argument-hint: "无需参数，直接调用即可"
 ---
 
 # Stocks Skill

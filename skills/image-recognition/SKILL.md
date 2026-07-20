@@ -1,7 +1,6 @@
 ---
 name: image-recognition
 description: "AI 图像识别工具。当用户提供图片并希望识别、描述、提取文字、分析画面内容或回答图片相关问题时使用。"
-argument-hint: "需要 prompt（识别提示词）和 image_url（图片 URL）"
 ---
 
 # Image Recognition Skill

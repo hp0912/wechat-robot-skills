@@ -1,7 +1,6 @@
 ---
 name: video-generation
 description: "AI 视频生成工具。当用户想生成视频、文生视频、图生视频、让图片动起来、指定首帧尾帧生成视频时使用。支持纯文本生成视频，或使用 1 张图片作为首帧、2 张图片作为首帧和尾帧。"
-argument-hint: "需要 prompt；可选 model、file_paths、ratio、resolution、duration。file_paths 最多 2 个。"
 ---
 
 # Video Generation Skill

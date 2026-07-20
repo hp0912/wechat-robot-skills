@@ -1,7 +1,6 @@
 ---
 name: image-to-image
 description: "图片修改、图生图工具。基于输入的一张或多张图片，结合文本提示词生成新的图片。支持图片混合、风格转换、内容合成等多种创作模式。输入是文字+图片的组合，输出是图片。"
-argument-hint: "需要 prompt（提示词）和 images（图片链接列表），可选 model（模型）、negative_prompt（反向提示词）、ratio（宽高比）、resolution（分辨率）"
 ---
 
 # Image To Image Skill

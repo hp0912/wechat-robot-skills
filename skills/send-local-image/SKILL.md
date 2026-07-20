@@ -1,7 +1,6 @@
 ---
 name: send-local-image
 description: "发送本地图片技能。当你需要将本地图片文件发送到当前微信会话时使用。"
-argument-hint: "需要 file_path；可重复传 file_path 发送多张本地图片。"
 ---
 
 # Send Local Image Skill

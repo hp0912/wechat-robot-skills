@@ -1,7 +1,6 @@
 ---
 name: text-to-image
 description: "AI绘图工具，当用户想通过文本生成图像时，可以调用该工具。根据用户输入内容提取画图提示词，选择合适的模型进行绘图，返回生成的图片。"
-argument-hint: "需要 prompt 参数（画图提示词），可选 model（模型）、negative_prompt（反向提示词）、ratio（宽高比）、resolution（分辨率）"
 ---
 
 # Text To Image Skill

@@ -1,7 +1,6 @@
 ---
 name: beauty
 description: "当用户发送「999」时触发。调用美女图片接口获取图片链接，再调用本地微信机器人发图接口把图片发给当前用户。"
-argument-hint: "无需参数，直接调用即可"
 ---
 
 # Beauty Skill

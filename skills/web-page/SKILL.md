@@ -1,7 +1,6 @@
 ---
 name: web-page
 description: "网页内容读取、自动化交互和截图工具。当用户提供网页链接并希望了解页面内容、点击按钮、填写表单、等待页面变化，或需要截取整个网页/可视区域/指定元素/指定区域时使用。"
-argument-hint: "需要 url；mode 可为 content 或 screenshot；自动化可传 actions/actions_file；截图可选 screenshot_mode、selector、x、y、width、height。"
 ---
 
 # Web Page Skill

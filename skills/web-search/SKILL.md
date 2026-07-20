@@ -1,7 +1,6 @@
 ---
 name: web-search
 description: "网页搜索技能。当用户需要联网搜索、查询最新网页信息、或让你先搜再总结时使用。"
-argument-hint: "需要 query"
 ---
 
 # Web Search Skill

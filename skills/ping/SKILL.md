@@ -1,7 +1,6 @@
 ---
 name: ping
 description: "示例技能。当用户说「使用示例技能」、「ping」或「调用示例」时触发，返回 pong。"
-argument-hint: "无需参数，直接调用即可"
 ---
 
 # Ping Skill

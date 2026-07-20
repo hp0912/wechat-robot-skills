@@ -1,7 +1,6 @@
 ---
 name: kfc
 description: "当用户说「kfc」、「KFC」、「肯德基」或「肯德基文案」时触发。调用 KFC 文案接口，返回其中的文案内容。"
-argument-hint: "无需参数，直接调用即可"
 ---
 
 # KFC Skill

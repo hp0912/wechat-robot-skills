@@ -1,7 +1,6 @@
 ---
 name: voice-message
 description: "文本转语音与语音消息发送技能。当用户想让我说话、发语音、把一段话转成语音、用某种情绪/音色/语速/方言读出来时使用。支持 content、emotion、voice、style_prompt、voice_prompt、audio_tags、context_texts 等通用参数，并自动把合成结果作为语音消息发给当前会话。"
-argument-hint: "需要 content；可选 emotion、voice、style_prompt、voice_prompt、audio_tags、context_texts、speaking_rate、pitch、volume、dialect。"
 ---
 
 # Voice Message Skill

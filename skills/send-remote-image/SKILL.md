@@ -1,7 +1,6 @@
 ---
 name: send-remote-image
 description: "发送远程图片技能。当你需要将一个或多个远程图片 URL 发送到当前微信会话时使用。"
-argument-hint: "需要 image_url；可重复传 image_url 发送多张远程图片。"
 ---
 
 # Send Remote Image Skill

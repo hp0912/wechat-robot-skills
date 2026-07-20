@@ -1,7 +1,6 @@
 ---
 name: doubao-video-understanding
 description: "豆包视频解析理解工具。当用户提供一个视频链接并希望获得视频的详细描述、总结或理解时使用。"
-argument-hint: "需要 prompt、video_url；可选 fps、max_tokens。"
 ---
 
 # Doubao Video Understanding Skill

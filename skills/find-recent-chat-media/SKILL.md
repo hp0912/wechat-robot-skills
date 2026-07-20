@@ -1,7 +1,6 @@
 ---
 name: find-recent-chat-media
 description: "从当前会话历史消息中查找最近十分钟内由当前用户发送的图片、视频或语音，并下载后上传 CDN 返回可供 AI 使用的媒体 URL。当你觉得你需要图片/视频/语音但当前上下文没有的时候使用。"
-argument-hint: "需要 media_type；可选 count，最多 5。media_type 可为 image、video、voice 或 all。"
 ---
 
 # Find Recent Chat Media Skill
