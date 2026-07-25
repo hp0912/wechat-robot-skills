@@ -4,10 +4,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import tempfile
 from pathlib import Path
 from typing import Any, Callable, NoReturn, Optional
+
+
+def quiet_pdf_library_logs() -> None:
+    """Keep third-party recovery warnings out of the JSON tool response."""
+    logging.getLogger("pdfminer").setLevel(logging.ERROR)
+    logging.getLogger("pypdf").setLevel(logging.ERROR)
+
+
+quiet_pdf_library_logs()
 
 
 class SkillArgumentParser(argparse.ArgumentParser):

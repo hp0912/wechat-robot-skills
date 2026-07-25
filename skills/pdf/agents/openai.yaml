@@ -1,4 +1,4 @@
 interface:
   display_name: "PDF 处理"
-  short_description: "读取、创建、审阅与可视化检查本地或远程 PDF 文件"
-  default_prompt: "使用 $pdf 下载并审阅这个 PDF，提取要点并检查页面布局。"
+  short_description: "读取、创建和审阅本地或远程 PDF，文本优先并按需检查版式"
+  default_prompt: "使用 $pdf 下载或读取这个 PDF，优先提取可靠文本并按我的要求处理内容。"

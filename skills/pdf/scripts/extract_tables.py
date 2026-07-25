@@ -63,10 +63,21 @@ def _clean_table(table) -> list[list[str]]:
     ]
 
 
+def _page_count(path) -> int:
+    from pypdf import PdfReader
+
+    with path.open("rb") as stream:
+        reader = PdfReader(stream, strict=False)
+        if reader.is_encrypted:
+            raise ValueError("PDF 已加密，无法提取表格")
+        return len(reader.pages)
+
+
 def _extract(args) -> dict[str, Any]:
     import pdfplumber
 
     path = input_pdf(args.input)
+    page_count = _page_count(path)
     result_pages: list[dict[str, Any]] = []
     table_count = 0
     cell_count = 0
@@ -74,7 +85,13 @@ def _extract(args) -> dict[str, Any]:
     next_table = 0
 
     with pdfplumber.open(path) as pdf:
-        page_count = len(pdf.pages)
+        observed_page_count = len(pdf.pages)
+        if observed_page_count != page_count:
+            raise RuntimeError(
+                "pdfplumber 页数与 PDF 检查结果不一致："
+                f"{observed_page_count} != {page_count}；"
+                "无法可靠提取表格"
+            )
         start_page, actual_end, next_page = selected_page_window(
             page_count,
             args.start_page,
