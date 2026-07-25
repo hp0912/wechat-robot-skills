@@ -1,4 +1,4 @@
 interface:
   display_name: "PDF 处理"
-  short_description: "读取、创建和审阅本地或远程 PDF，文本优先并按需检查版式"
-  default_prompt: "使用 $pdf 下载或读取这个 PDF，优先提取可靠文本并按我的要求处理内容。"
+  short_description: "读取、创建和审阅本地或远程 PDF，按需执行本地 OCR"
+  default_prompt: "使用 $pdf 下载或读取这个 PDF，优先提取可靠文本，并只对扫描页执行本地 OCR。"
