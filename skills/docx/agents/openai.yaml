@@ -1,4 +1,4 @@
 interface:
   display_name: "Word 文档"
-  short_description: "安全下载、创建、编辑、校验并渲染专业 Word 文档"
-  default_prompt: "使用 $docx 创建或处理本地文件或 HTTPS 链接中的 Word 文档，并完成内容与版式校验。"
+  short_description: "安全读取、编辑、图片 OCR、校验并渲染专业 Word 文档"
+  default_prompt: "使用 $docx 读取或创建 Word 文档，按需识别图片文字，并完成内容与版式校验。"

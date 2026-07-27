@@ -1,6 +1,6 @@
 ---
 name: docx
-description: "创建、读取、编辑、转换、批注、接受修订、校验和渲染本地或远程 HTTPS Microsoft Word 文档。用户提到 Word、文档、报告、备忘录、合同、信函、模板、目录、页眉页脚、页码、表格、图片、批注或修订，或提供 HTTPS Word 地址、.docx、.dotx、.doc 文件时使用；支持安全下载、结构化创建、跨 Run 查找替换、安全 OOXML 解包/打包、旧格式转换、关系与 XML 校验及逐页视觉检查。若主要交付物是 PDF、电子表格、Google Docs 或普通代码，则不要使用。"
+description: "创建、读取、编辑、转换、批注、接受修订、校验和渲染本地或远程 HTTPS Microsoft Word 文档，并按需识别文档图片、截图和扫描页中的文字。用户提到 Word、文档、报告、备忘录、合同、信函、模板、目录、页眉页脚、页码、表格、图片、图片文字 OCR、批注或修订，或提供 HTTPS Word 地址、.docx、.dotx、.doc 文件时使用；支持安全下载、结构化创建、跨 Run 查找替换、本地 RapidOCR、安全 OOXML 解包/打包、旧格式转换、关系与 XML 校验及逐页视觉检查。若主要交付物是 PDF、电子表格、Google Docs 或普通代码，则不要使用。"
 ---
 
 # Word 文档处理
@@ -13,6 +13,7 @@ description: "创建、读取、编辑、转换、批注、接受修订、校验
 - 不把 `python3`、`soffice`、`libreoffice`、`pandoc`、`pdftoppm`、`zip`、`unzip`、`find`、`rm` 或其他系统命令作为脚本参数。
 - LibreOffice、Pandoc、Poppler 和 ZIP 操作只允许由固定 Python 脚本在内部调用。
 - 每次检查脚本返回 JSON；只有 `ok` 为 `true` 时才继续。`validate_document.py` 还必须返回 `status: valid`。
+- 只在需要读取图片、截图或扫描页中的文字时调用 `ocr_document.py`。只使用 `pages[]` 中 `usable_for_summary: true` 的 `text`；低置信度结果不得作为可靠正文。
 - 远程地址只交给 `download_document.py`；不要在回复、日志摘要或文件名中复述可能含敏感查询参数的完整 URL。
 - 不覆盖用户提供的源文件。最终结果写入 `output/docx/`，中间产物写入 `tmp/docx/<任务名>/`。
 - 环境已预置依赖，不安装软件包，也不提示用户安装依赖。
@@ -23,6 +24,7 @@ description: "创建、读取、编辑、转换、批注、接受修订、校验
 | --- | --- | --- |
 | `scripts/download_document.py` | 下载并校验远程 HTTPS Word 文档 | Python `urllib`、安全 OOXML 解析、`python-docx` |
 | `scripts/inspect_document.py` | 分段读取正文、表格、样式、批注和修订 | `python-docx`、安全 OOXML 解析 |
+| `scripts/ocr_document.py` | 按页识别图片、截图和扫描页中的文字 | RapidOCR、ONNX Runtime、LibreOffice、Poppler、`pdfplumber` |
 | `scripts/create_document.py` | 按受控 JSON 创建专业 DOCX | `python-docx`、Pillow |
 | `scripts/edit_document.py` | 查找替换、追加/插入内容、调整样式和页面 | `python-docx` |
 | `scripts/add_comment.py` | 给精确文本范围添加批注 | `python-docx` |
@@ -38,12 +40,13 @@ description: "创建、读取、编辑、转换、批注、接受修订、校验
 1. 输入是 HTTPS 地址时，先调用 `download_document.py` 下载到本次任务临时目录；本地文件直接进入下一步。
 2. 旧版 `.doc` 或模板 `.dotx` 先调用 `convert_document.py` 转为 `.docx`；保留原文件。
 3. 编辑、总结或重组现有文档前调用 `inspect_document.py`，确认段落、表格、章节、页眉页脚、批注和修订状态。
-4. 新建文档使用 `create_document.py`；常规编辑使用 `edit_document.py`；添加批注使用 `add_comment.py`。
-5. 输入有修订时，先确认用户希望保留还是接受。普通编辑脚本默认拒绝含修订的文档，避免把修订静默损坏。
-6. 只有固定编辑脚本不能完成的 OOXML 高级需求，才使用 `unpack_document.py` → 编辑 XML 文件 → `pack_document.py`；不得直接运行 ZIP 或 shell 命令。
-7. 所有创建或修改结果必须调用 `validate_document.py --check-convert`，确保 `status: valid`、`issue_count: 0`。
-8. 再调用 `render_document.py` 渲染全部页面，逐页检查版式；有游标时继续到 `has_more: false`。
-9. 结构、内容、修订/批注和视觉检查都通过后才交付。
+4. 需要读取截图、扫描页或图片中的文字时调用 `ocr_document.py`。省略 `--pages` 可自动选择含有效图片的页面；不要默认 OCR 没有图片的普通正文页，也不要用 OCR 覆盖可靠的原生文本。
+5. 新建文档使用 `create_document.py`；常规编辑使用 `edit_document.py`；添加批注使用 `add_comment.py`。
+6. 输入有修订时，先确认用户希望保留还是接受。普通编辑脚本默认拒绝含修订的文档，避免把修订静默损坏。
+7. 只有固定编辑脚本不能完成的 OOXML 高级需求，才使用 `unpack_document.py` → 编辑 XML 文件 → `pack_document.py`；不得直接运行 ZIP 或 shell 命令。
+8. 所有创建或修改结果必须调用 `validate_document.py --check-convert`，确保 `status: valid`、`issue_count: 0`。
+9. 再调用 `render_document.py` 渲染全部页面，逐页检查版式；有游标时继续到 `has_more: false`。
+10. 结构、内容、修订/批注和视觉检查都通过后才交付。
 
 ## 下载远程文档
 
@@ -85,8 +88,35 @@ description: "创建、读取、编辑、转换、批注、接受修订、校验
 - `tracked_changes.total` 和 `authors`：是否存在修订及修订作者。
 - `comments`：批注正文和作者。
 - `sections`：纸张、方向、页边距、页眉、页脚。
+- `has_images`、`inline_image_count`、`media_part_count`：是否需要进一步读取图片文字；浮动图片可能只计入媒体部件。
 - `archive.missing_required_parts`、`duplicate_members`：结构异常。
 - `has_more`、`next_paragraph`、`next_table`：继续读取长文档。
+
+## 识别图片中的文字
+
+需要读取图片、截图或扫描页中的文字时调用：
+
+```text
+--input 'source.docx'
+```
+
+省略 `--pages` 时，脚本会把 Word 临时转换为 PDF，自动选择包含足够大图片的页面，每次最多处理 4 页。需要识别较小图片或指定页面时传：
+
+```text
+--input 'source.docx' --pages '2,5-6'
+```
+
+脚本通过 LibreOffice 和 Poppler 临时渲染页面，使用本地 RapidOCR 识别图片区域；临时 PDF 和 PNG 会自动删除，不联网，也不调用大模型识图。PDF 原生文本层用于过滤正文、页眉、页脚和页码产生的重复 OCR，因此 `pages[].text` 只返回可靠的额外图片文字。
+
+检查：
+
+- `candidate_pages`：自动检测到的图片页；`selection_mode` 表示自动或显式选页。
+- `status: good` 且 `usable_for_summary: true`：可以把 `text` 补充到原生文档内容中。
+- `status: no_image_text`：图片区域没有识别到额外文字，不是错误。
+- `status: sparse` 或 `low_confidence`：不要使用返回文字；根据 `needs_review` 人工核验。
+- `filtered_native_line_count` 和 `filtered_outside_image_line_count`：被当作原生文字或图片区域外文字过滤的 OCR 行数。
+
+默认 260 DPI，可用 `--dpi 150-400` 调整。若 `has_more: true`：`next_offset > 0` 时传 `--pages <next_page> --start-offset <next_offset>`；`next_offset = 0` 时把 `remaining_pages` 作为下一次 `--pages`。普通小徽标和面积不足页面约 1.5% 的图片不会进入自动候选，但仍可用 `--pages` 显式识别。
 
 ## 创建文档
 

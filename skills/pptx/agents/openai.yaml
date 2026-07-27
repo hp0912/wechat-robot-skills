@@ -1,0 +1,4 @@
+interface:
+  display_name: "PowerPoint 演示文稿"
+  short_description: "创建、编辑、图片 OCR、校验并渲染 PowerPoint 演示文稿"
+  default_prompt: "使用 $pptx 读取或创建专业演示文稿，按需识别图片文字，并完成结构与视觉校验。"
