@@ -117,7 +117,7 @@
 
 {
   "to_wxid": "{{ROBOT_FROM_WX_ID}}",
-  "Md5": "xxxxxxx", // 表情 md5
+  "Md5": "xxxxxxxo", // 表情 md5
   "TotalLen": 263, // 表情长度
 }
 ```
