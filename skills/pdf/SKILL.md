@@ -1,6 +1,6 @@
 ---
 name: pdf
-description: "处理本地 PDF 文件或远程 HTTPS PDF 链接，包括安全下载、元数据与页面检查、多引擎分段文本提取和质量检测、扫描页本地 OCR、表格提取、按需页面 PNG 渲染、从文本创建 PDF、合并、拆分、旋转及最终质量校验。当用户提供 .pdf 文件或 HTTPS PDF 地址，或要求总结、读取、识别扫描件、生成、编辑、转换或审阅 PDF 时使用。"
+description: "处理本地 PDF 文件或远程 HTTPS PDF 链接，并下载 PDF 任务所需且不超过 25 MiB 的图片、音视频、压缩包和其他 HTTPS 附件；包括源 PDF 安全下载、元数据与页面检查、多引擎分段文本提取和质量检测、扫描页本地 OCR、表格提取、按需页面 PNG 渲染、从文本创建 PDF、合并、拆分、旋转及最终质量校验。当用户提供 .pdf 文件或 HTTPS PDF 地址，或要求总结、读取、识别扫描件、生成、编辑、转换或审阅 PDF 时使用。"
 ---
 
 # PDF 处理
@@ -16,6 +16,7 @@ description: "处理本地 PDF 文件或远程 HTTPS PDF 链接，包括安全�
 - 每次检查脚本返回的 JSON；只有 `ok` 为 `true` 时才继续。
 - 收到 `ok: false` 时，依据 `error` 调整合法参数或向用户说明失败原因，不要把参数改传给其他脚本碰运气。
 - 阅读或总结时只使用 `pages[]` 中 `usable_for_summary: true` 的文本。`needs_ocr: false` 时不得为了“常规检查”继续 OCR、渲染或调用图片识别。
+- 远程 PDF 源文件只交给 `download_pdf.py`；任务所需的远程图片、视频、音频、压缩包或其他附件只交给 `download_attachment.py`。不要在回复、日志摘要或文件名中复述可能含敏感查询参数的完整 URL。
 - PDF 最终文件一律写入 `/usr/local/src/pdf/`，下载缓存、中间文件和渲染结果一律写入 `/usr/local/src/pdf/tmp/<任务名>/`。始终传绝对路径；固定脚本会自动创建目录并拒绝该根目录之外的输出。
 - 不把 PDF 密码作为脚本参数；工具调用参数可能进入运行日志。
 
@@ -24,6 +25,7 @@ description: "处理本地 PDF 文件或远程 HTTPS PDF 链接，包括安全�
 | 脚本 | 用途 | 底层能力 |
 | --- | --- | --- |
 | `scripts/download_pdf.py` | 下载并校验远程 HTTPS PDF | `urllib`、`pypdf` |
+| `scripts/download_attachment.py` | 下载图片、音视频、压缩包等通用 HTTPS 附件 | `urllib`、HEAD 大小探测、流式硬限制 |
 | `scripts/inspect_pdf.py` | 检查页数、加密、元数据、页面尺寸和表单数量 | `pypdf` |
 | `scripts/extract_text.py` | 多引擎提取、质量检测并分段返回正文 | Poppler `pdftotext`、`pdfplumber`；`pypdf` 校验 |
 | `scripts/ocr_text.py` | 对指定扫描页执行离线 OCR 并返回可靠文字 | RapidOCR、ONNX Runtime、Poppler `pdftoppm` |
@@ -60,10 +62,22 @@ description: "处理本地 PDF 文件或远程 HTTPS PDF 链接，包括安全�
 可选参数：
 
 - `--timeout <秒>`：默认 `60`。
-- `--max-bytes <字节数>`：默认 `104857600`（100 MiB）。
+- `--max-bytes <字节数>`：默认且最高 `26214400`（25 MiB），只允许设置更小的限制。
 - `--overwrite`：仅在目标是本次任务生成的缓存时使用。
 
 脚本会创建父目录、流式下载、阻止 HTTPS 重定向降级到 HTTP，并验证 PDF。成功结果包含 `path`、`size_bytes`、`page_count` 和 `encrypted`。
+
+## 下载通用附件
+
+需要下载作为 PDF 任务素材的图片、视频、音频、压缩包或其他文件时，调用 `scripts/download_attachment.py`：
+
+```text
+--url 'https://example.com/asset.bin?signature=...' --output '/usr/local/src/pdf/tmp/<任务名>/asset.bin'
+```
+
+只接受 HTTPS 地址，`output` 可使用任意附件扩展名。可选参数只有 `--timeout <1-600>`（默认 `60`）和 `--overwrite`。附件上限固定为 25 MiB（26214400 字节），不可调高：脚本先用 HEAD 探测远端声明大小，再检查 GET 响应声明，并在流式接收时持续兜底计数；任一阶段发现超限都会返回 `ok: false` 和明确的“已拒绝下载”错误，且不会发布部分文件。
+
+成功结果包含 `path`、实际 `size_bytes`、`declared_size_bytes`、`size_limit_bytes`、`size_probe` 和 `content_type`。本脚本不校验文件业务格式；远程 PDF 源文件仍使用 `download_pdf.py`。
 
 ## 检查 PDF
 

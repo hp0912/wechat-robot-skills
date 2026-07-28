@@ -1,6 +1,6 @@
 ---
 name: pptx
-description: "创建、读取、编辑、复制页面、转换、校验和渲染本地或远程 HTTPS PowerPoint 演示文稿与模板，并按需识别页面图片、截图和图表中的文字。用户提到 PPT、PPTX、PowerPoint、演示文稿、幻灯片、路演稿、汇报材料、演讲者备注、模板、版式或图片文字 OCR，或提供 HTTPS 演示文稿地址、.pptx、.potx、.ppsx、.ppt 文件时使用；支持安全下载、结构化创建、保留 Run 格式的文本替换、页面删除/重排/复制、Markdown 提取、本地 RapidOCR、旧格式转换、受控 OOXML 解包/打包、关系与图表校验及逐页视觉检查。若主要交付物不是演示文稿且不需要读取或修改 PPT 内容，则不要使用。"
+description: "创建、读取、编辑、复制页面、转换、校验和渲染本地或远程 HTTPS PowerPoint 演示文稿与模板，并下载 PPT 任务所需且不超过 25 MiB 的图片、音视频、压缩包和其他 HTTPS 附件，按需识别页面图片、截图和图表中的文字。用户提到 PPT、PPTX、PowerPoint、演示文稿、幻灯片、路演稿、汇报材料、演讲者备注、模板、版式或图片文字 OCR，或提供 HTTPS 演示文稿地址、.pptx、.potx、.ppsx、.ppt 文件时使用；支持源演示文稿安全下载、结构化创建、保留 Run 格式的文本替换、页面删除/重排/复制、Markdown 提取、本地 RapidOCR、旧格式转换、受控 OOXML 解包/打包、关系与图表校验及逐页视觉检查。若主要交付物不是演示文稿且不需要读取或修改 PPT 内容，则不要使用。"
 ---
 
 # PowerPoint 演示文稿处理
@@ -15,7 +15,7 @@ description: "创建、读取、编辑、复制页面、转换、校验和渲染
 - 每次检查脚本返回的 JSON；只有 `ok` 为 `true` 时才继续。`validate_presentation.py` 还必须返回 `status: valid`、`issue_count: 0`。
 - 只在需要读取图片、截图或视觉图表中的文字时调用 `ocr_presentation.py`。只使用 `slides[]` 中 `usable_for_summary: true` 的 `text`；低置信度结果不得作为可靠正文。
 - 不覆盖用户提供的源文件。PPT 最终文件一律写入 `/usr/local/src/ppt/`，下载缓存、中间文件和渲染结果一律写入 `/usr/local/src/ppt/tmp/<任务名>/`。始终传绝对路径；固定脚本会自动创建目录并拒绝该根目录之外的输出。
-- 远程地址只交给 `download_presentation.py`；不要在回复、日志摘要或文件名中复述可能含敏感查询参数的完整 URL。
+- 远程 PowerPoint 源文件只交给 `download_presentation.py`；任务所需的远程图片、视频、音频、压缩包或其他附件只交给 `download_attachment.py`。不要在回复、日志摘要或文件名中复述可能含敏感查询参数的完整 URL。
 - 环境已预置全部依赖，不安装软件包，也不提示用户安装依赖。
 
 ## 脚本清单
@@ -23,6 +23,7 @@ description: "创建、读取、编辑、复制页面、转换、校验和渲染
 | 脚本 | 用途 | 底层能力 |
 | --- | --- | --- |
 | `scripts/download_presentation.py` | 下载并校验远程 HTTPS 演示文稿 | Python `urllib`、安全 OOXML 解析、`python-pptx` |
+| `scripts/download_attachment.py` | 下载图片、音视频、压缩包等通用 HTTPS 附件 | Python `urllib`、HEAD 大小探测、流式硬限制 |
 | `scripts/inspect_presentation.py` | 分段读取页面、文本、表格、图表、图片和备注 | `python-pptx`、安全 OOXML 解析 |
 | `scripts/ocr_presentation.py` | 按页识别图片、截图和视觉图表中的文字 | RapidOCR、ONNX Runtime、LibreOffice、Poppler |
 | `scripts/extract_presentation.py` | 提取整份演示文稿为 Markdown | `markitdown[pptx]` |
@@ -60,10 +61,22 @@ description: "创建、读取、编辑、复制页面、转换、校验和渲染
 可选参数：
 
 - `--timeout <1-600>`：连接和读取超时秒数，默认 `60`。
-- `--max-bytes <字节数>`：默认 100 MiB，最高 512 MiB。
+- `--max-bytes <字节数>`：默认且最高 25 MiB（26214400 字节），只允许设置更小的限制。
 - `--overwrite`：只覆盖本次任务生成的旧缓存。
 
 `output` 扩展名必须与远程内容的真实格式一致，支持 `.pptx/.potx/.ppsx/.ppt`。脚本限制重定向只能继续使用 HTTPS，流式限制大小，先写临时文件，再原子发布。
+
+## 下载通用附件
+
+需要下载作为 PowerPoint 任务素材的图片、视频、音频、压缩包或其他文件时，调用 `scripts/download_attachment.py`：
+
+```text
+--url 'https://example.com/asset.bin?signature=...' --output '/usr/local/src/ppt/tmp/<任务名>/asset.bin'
+```
+
+只接受 HTTPS 地址，`output` 可使用任意附件扩展名。可选参数只有 `--timeout <1-600>`（默认 `60`）和 `--overwrite`。附件上限固定为 25 MiB（26214400 字节），不可调高：脚本先用 HEAD 探测远端声明大小，再检查 GET 响应声明，并在流式接收时持续兜底计数；任一阶段发现超限都会返回 `ok: false` 和明确的“已拒绝下载”错误，且不会发布部分文件。
+
+成功结果包含 `path`、实际 `size_bytes`、`declared_size_bytes`、`size_limit_bytes`、`size_probe` 和 `content_type`。本脚本不校验文件业务格式；远程 PowerPoint 源文件仍使用 `download_presentation.py`。
 
 ## 检查和提取内容
 

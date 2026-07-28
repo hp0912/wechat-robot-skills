@@ -18,7 +18,8 @@ from typing import NoReturn, Optional
 from _pdf_common import ensure_output_path
 
 DEFAULT_TIMEOUT_SECONDS = 60
-DEFAULT_MAX_BYTES = 100 * 1024 * 1024
+MAX_ALLOWED_BYTES = 25 * 1024 * 1024
+DEFAULT_MAX_BYTES = MAX_ALLOWED_BYTES
 CHUNK_SIZE = 1024 * 1024
 USER_AGENT = "wechat-robot-pdf-skill/1.0"
 
@@ -96,8 +97,10 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     args.url = _validate_https_url(args.url)
     if args.timeout <= 0:
         raise ValueError("timeout 必须大于 0")
-    if args.max_bytes <= 0:
-        raise ValueError("max-bytes 必须大于 0")
+    if args.max_bytes <= 0 or args.max_bytes > MAX_ALLOWED_BYTES:
+        raise ValueError(
+            f"max-bytes 必须在 1 到 {MAX_ALLOWED_BYTES} 之间"
+        )
 
     output = Path(args.output).expanduser()
     if output.suffix.lower() != ".pdf":
@@ -169,7 +172,8 @@ def _download(args: argparse.Namespace) -> dict:
                         expected_bytes = 0
                     if expected_bytes > args.max_bytes:
                         raise ValueError(
-                            f"远程文件超过大小限制：最多允许 {args.max_bytes} 字节"
+                            "远程文件超过大小限制，已拒绝下载："
+                            f"最多允许 {args.max_bytes} 字节"
                         )
 
                 downloaded_bytes = 0
@@ -180,7 +184,8 @@ def _download(args: argparse.Namespace) -> dict:
                     downloaded_bytes += len(chunk)
                     if downloaded_bytes > args.max_bytes:
                         raise ValueError(
-                            f"远程文件超过大小限制：最多允许 {args.max_bytes} 字节"
+                            "远程文件超过大小限制，已拒绝下载："
+                            f"最多允许 {args.max_bytes} 字节"
                         )
                     temp_file.write(chunk)
 

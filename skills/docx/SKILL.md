@@ -1,6 +1,6 @@
 ---
 name: docx
-description: "创建、读取、编辑、转换、批注、接受修订、校验和渲染本地或远程 HTTPS Microsoft Word 文档，并按需识别文档图片、截图和扫描页中的文字。用户提到 Word、文档、报告、备忘录、合同、信函、模板、目录、页眉页脚、页码、表格、图片、图片文字 OCR、批注或修订，或提供 HTTPS Word 地址、.docx、.dotx、.doc 文件时使用；支持安全下载、结构化创建、跨 Run 查找替换、本地 RapidOCR、安全 OOXML 解包/打包、旧格式转换、关系与 XML 校验及逐页视觉检查。若主要交付物是 PDF、电子表格、Google Docs 或普通代码，则不要使用。"
+description: "创建、读取、编辑、转换、批注、接受修订、校验和渲染本地或远程 HTTPS Microsoft Word 文档，并下载 Word 任务所需且不超过 25 MiB 的图片、音视频、压缩包和其他 HTTPS 附件，按需识别文档图片、截图和扫描页中的文字。用户提到 Word、文档、报告、备忘录、合同、信函、模板、目录、页眉页脚、页码、表格、图片、图片文字 OCR、批注或修订，或提供 HTTPS Word 地址、.docx、.dotx、.doc 文件时使用；支持源文档安全下载、结构化创建、跨 Run 查找替换、本地 RapidOCR、安全 OOXML 解包/打包、旧格式转换、关系与 XML 校验及逐页视觉检查。若主要交付物是 PDF、电子表格、Google Docs 或普通代码，则不要使用。"
 ---
 
 # Word 文档处理
@@ -14,7 +14,7 @@ description: "创建、读取、编辑、转换、批注、接受修订、校验
 - LibreOffice、Pandoc、Poppler 和 ZIP 操作只允许由固定 Python 脚本在内部调用。
 - 每次检查脚本返回 JSON；只有 `ok` 为 `true` 时才继续。`validate_document.py` 还必须返回 `status: valid`。
 - 只在需要读取图片、截图或扫描页中的文字时调用 `ocr_document.py`。只使用 `pages[]` 中 `usable_for_summary: true` 的 `text`；低置信度结果不得作为可靠正文。
-- 远程地址只交给 `download_document.py`；不要在回复、日志摘要或文件名中复述可能含敏感查询参数的完整 URL。
+- 远程 Word 源文档只交给 `download_document.py`；任务所需的远程图片、视频、音频、压缩包或其他附件只交给 `download_attachment.py`。不要在回复、日志摘要或文件名中复述可能含敏感查询参数的完整 URL。
 - 不覆盖用户提供的源文件。Word 最终文件一律写入 `/usr/local/src/word/`，下载缓存、中间文件和渲染结果一律写入 `/usr/local/src/word/tmp/<任务名>/`。始终传绝对路径；固定脚本会自动创建目录并拒绝该根目录之外的输出。
 - 环境已预置依赖，不安装软件包，也不提示用户安装依赖。
 
@@ -23,6 +23,7 @@ description: "创建、读取、编辑、转换、批注、接受修订、校验
 | 脚本 | 用途 | 底层能力 |
 | --- | --- | --- |
 | `scripts/download_document.py` | 下载并校验远程 HTTPS Word 文档 | Python `urllib`、安全 OOXML 解析、`python-docx` |
+| `scripts/download_attachment.py` | 下载图片、音视频、压缩包等通用 HTTPS 附件 | Python `urllib`、HEAD 大小探测、流式硬限制 |
 | `scripts/inspect_document.py` | 分段读取正文、表格、样式、批注和修订 | `python-docx`、安全 OOXML 解析 |
 | `scripts/ocr_document.py` | 按页识别图片、截图和扫描页中的文字 | RapidOCR、ONNX Runtime、LibreOffice、Poppler、`pdfplumber` |
 | `scripts/create_document.py` | 按受控 JSON 创建专业 DOCX | `python-docx`、Pillow |
@@ -61,12 +62,24 @@ description: "创建、读取、编辑、转换、批注、接受修订、校验
 可选参数：
 
 - `--timeout <1-600>`：连接和读取超时秒数，默认 `60`。
-- `--max-bytes <字节数>`：默认 `104857600`（100 MiB），最高 `536870912`（512 MiB）。
+- `--max-bytes <字节数>`：默认且最高 `26214400`（25 MiB），只允许设置更小的限制。
 - `--overwrite`：只在目标是本次任务生成的旧缓存时使用。
 
 `output` 扩展名必须是 `.docx`、`.dotx` 或 `.doc`。脚本阻止 HTTPS 重定向降级到 HTTP，流式限制大小，先写同目录临时文件，再原子发布；DOCX/DOTX 会检查 ZIP 路径、成员大小、必要部件和内容类型，并用 `python-docx` 打开。实际 OOXML 格式与 `output` 扩展名不一致时，根据错误中的实际格式更正缓存扩展名，再调用同一脚本。
 
 成功结果包含 `path`、`size_bytes`、`format` 和 `validation`；OOXML 还包含段落、表格和章节数量。后续脚本只使用返回的本地 `path`，不再访问原 URL。
+
+## 下载通用附件
+
+需要下载作为 Word 任务素材的图片、视频、音频、压缩包或其他文件时，调用 `scripts/download_attachment.py`：
+
+```text
+--url 'https://example.com/asset.bin?signature=...' --output '/usr/local/src/word/tmp/<任务名>/asset.bin'
+```
+
+只接受 HTTPS 地址，`output` 可使用任意附件扩展名。可选参数只有 `--timeout <1-600>`（默认 `60`）和 `--overwrite`。附件上限固定为 25 MiB（26214400 字节），不可调高：脚本先用 HEAD 探测远端声明大小，再检查 GET 响应声明，并在流式接收时持续兜底计数；任一阶段发现超限都会返回 `ok: false` 和明确的“已拒绝下载”错误，且不会发布部分文件。
+
+成功结果包含 `path`、实际 `size_bytes`、`declared_size_bytes`、`size_limit_bytes`、`size_probe` 和 `content_type`。本脚本不校验文件业务格式；远程 Word 源文档仍使用 `download_document.py`。
 
 ## 检查文档
 

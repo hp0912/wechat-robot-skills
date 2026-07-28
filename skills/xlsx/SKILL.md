@@ -1,6 +1,6 @@
 ---
 name: xlsx
-description: "创建、读取、编辑、修复、转换、重算、校验和渲染本地或远程 HTTPS Excel 工作簿及表格数据。用户提到 Excel、电子表格、工作簿、工作表、单元格、公式、图表、数据清洗，或提供 HTTPS Excel/CSV/TSV 地址、.xlsx、.xlsm、.xltx、.xls、.csv、.tsv 文件时使用；支持安全下载、保留现有样式、批量写入、公式与缓存值检查、表格/图表/图片/数据验证/条件格式、旧格式转换和逐页视觉检查。最终交付物必须是电子表格文件；若主要交付物是 Word、PDF、HTML、数据库程序或在线 Google Sheets，则不要使用。"
+description: "创建、读取、编辑、修复、转换、重算、校验和渲染本地或远程 HTTPS Excel 工作簿及表格数据，并下载 Excel 任务所需且不超过 25 MiB 的图片、音视频、压缩包和其他 HTTPS 附件。用户提到 Excel、电子表格、工作簿、工作表、单元格、公式、图表、数据清洗，或提供 HTTPS Excel/CSV/TSV 地址、.xlsx、.xlsm、.xltx、.xls、.csv、.tsv 文件时使用；支持源文件安全下载、保留现有样式、批量写入、公式与缓存值检查、表格/图表/图片/数据验证/条件格式、旧格式转换和逐页视觉检查。最终交付物必须是电子表格文件；若主要交付物是 Word、PDF、HTML、数据库程序或在线 Google Sheets，则不要使用。"
 ---
 
 # Excel 工作簿处理
@@ -13,7 +13,7 @@ description: "创建、读取、编辑、修复、转换、重算、校验和渲
 - 不把 `python3`、`soffice`、`libreoffice`、`pdftoppm`、`zip`、`unzip`、`rm` 或其他系统命令作为脚本参数。
 - 外部程序只允许由固定脚本在内部以无 shell 参数数组方式调用。
 - 每次检查脚本返回的 JSON；只有 `ok` 为 `true` 时才继续。`status: errors_found` 虽然表示脚本成功运行，但工作簿不合格，必须修复。
-- 远程地址只交给 `download_workbook.py`；不要在回复、日志摘要或文件名中复述可能含敏感查询参数的完整 URL。
+- 远程 Excel/CSV/TSV 源文件只交给 `download_workbook.py`；任务所需的远程图片、视频、音频、压缩包或其他附件只交给 `download_attachment.py`。不要在回复、日志摘要或文件名中复述可能含敏感查询参数的完整 URL。
 - 不覆盖用户提供的源文件。Excel 最终文件一律写入 `/usr/local/src/excel/`，下载缓存、中间文件和渲染结果一律写入 `/usr/local/src/excel/tmp/<任务名>/`。始终传绝对路径；固定脚本会自动创建目录并拒绝该根目录之外的输出。
 - 环境已预置依赖，不安装软件包，也不提示用户安装依赖。
 
@@ -22,6 +22,7 @@ description: "创建、读取、编辑、修复、转换、重算、校验和渲
 | 脚本 | 用途 | 底层能力 |
 | --- | --- | --- |
 | `scripts/download_workbook.py` | 下载并校验远程 HTTPS Excel/CSV/TSV | Python `urllib`、安全 OOXML 解析、`openpyxl` |
+| `scripts/download_attachment.py` | 下载图片、音视频、压缩包等通用 HTTPS 附件 | Python `urllib`、HEAD 大小探测、流式硬限制 |
 | `scripts/inspect_workbook.py` | 分段读取结构、公式、缓存值和样式 | `openpyxl`、Python `csv` |
 | `scripts/apply_workbook.py` | 按受控 JSON 创建或编辑工作簿 | `openpyxl`、Pillow |
 | `scripts/convert_workbook.py` | 转换 `.xls/.csv/.tsv/.xlsx/.xlsm/.xltx` | `openpyxl`、LibreOffice |
@@ -52,12 +53,24 @@ description: "创建、读取、编辑、修复、转换、重算、校验和渲
 可选参数：
 
 - `--timeout <1-600>`：连接和读取超时秒数，默认 `60`。
-- `--max-bytes <字节数>`：默认 `104857600`（100 MiB），最高 `536870912`（512 MiB）。
+- `--max-bytes <字节数>`：默认且最高 `26214400`（25 MiB），只允许设置更小的限制。
 - `--overwrite`：只在目标是本次任务生成的旧缓存时使用。
 
 `output` 扩展名必须是 `.xlsx`、`.xlsm`、`.xltx`、`.xltm`、`.xls`、`.csv` 或 `.tsv`。脚本阻止 HTTPS 重定向降级到 HTTP，流式限制大小，先写同目录临时文件，再原子发布；OOXML 会检查 ZIP 路径、成员大小、内容类型并用 `openpyxl` 打开，CSV/TSV 会拒绝二进制或网页响应。实际 OOXML 格式与 `output` 扩展名不一致时，根据错误中的实际格式更正缓存扩展名，再调用同一脚本。
 
 成功结果包含 `path`、`size_bytes`、`format` 和 `validation`；OOXML 还包含 `sheet_count`。后续脚本只使用返回的本地 `path`，不再访问原 URL。
+
+## 下载通用附件
+
+需要下载作为 Excel 任务素材的图片、视频、音频、压缩包或其他文件时，调用 `scripts/download_attachment.py`：
+
+```text
+--url 'https://example.com/asset.bin?signature=...' --output '/usr/local/src/excel/tmp/<任务名>/asset.bin'
+```
+
+只接受 HTTPS 地址，`output` 可使用任意附件扩展名。可选参数只有 `--timeout <1-600>`（默认 `60`）和 `--overwrite`。附件上限固定为 25 MiB（26214400 字节），不可调高：脚本先用 HEAD 探测远端声明大小，再检查 GET 响应声明，并在流式接收时持续兜底计数；任一阶段发现超限都会返回 `ok: false` 和明确的“已拒绝下载”错误，且不会发布部分文件。
+
+成功结果包含 `path`、实际 `size_bytes`、`declared_size_bytes`、`size_limit_bytes`、`size_probe` 和 `content_type`。本脚本不校验文件业务格式；远程 Excel/CSV/TSV 源文件仍使用 `download_workbook.py`。
 
 ## 检查工作簿
 

@@ -25,8 +25,8 @@ from _xlsx_common import (
 
 
 DEFAULT_TIMEOUT_SECONDS = 60
-DEFAULT_MAX_BYTES = 100 * 1024 * 1024
-MAX_ALLOWED_BYTES = 512 * 1024 * 1024
+MAX_ALLOWED_BYTES = 25 * 1024 * 1024
+DEFAULT_MAX_BYTES = MAX_ALLOWED_BYTES
 CHUNK_SIZE = 1024 * 1024
 MAX_ARCHIVE_MEMBERS = 20_000
 MAX_ARCHIVE_UNCOMPRESSED_BYTES = 512 * 1024 * 1024
@@ -357,7 +357,7 @@ def _download(args: argparse.Namespace) -> dict[str, Any]:
                         expected_bytes = 0
                     if expected_bytes > args.max_bytes:
                         raise ValueError(
-                            "远程文件超过大小限制："
+                            "远程文件超过大小限制，已拒绝下载："
                             f"最多允许 {args.max_bytes} 字节"
                         )
 
@@ -369,7 +369,7 @@ def _download(args: argparse.Namespace) -> dict[str, Any]:
                     downloaded_bytes += len(chunk)
                     if downloaded_bytes > args.max_bytes:
                         raise ValueError(
-                            "远程文件超过大小限制："
+                            "远程文件超过大小限制，已拒绝下载："
                             f"最多允许 {args.max_bytes} 字节"
                         )
                     temp_file.write(chunk)
