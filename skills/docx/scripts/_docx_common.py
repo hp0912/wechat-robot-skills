@@ -20,6 +20,7 @@ DOCX_INPUT_SUFFIXES = {".docx", ".dotx"}
 WORD_INPUT_SUFFIXES = DOCX_INPUT_SUFFIXES | {".doc"}
 DOCX_OUTPUT_SUFFIXES = {".docx", ".dotx"}
 DOCUMENT_OUTPUT_SUFFIXES = DOCX_OUTPUT_SUFFIXES | {".pdf", ".txt", ".md"}
+WORD_OUTPUT_ROOT = Path("/usr/local/src/word")
 MAX_ARCHIVE_MEMBERS = 20_000
 MAX_ARCHIVE_UNCOMPRESSED_BYTES = 512 * 1024 * 1024
 MAX_MEMBER_BYTES = 128 * 1024 * 1024
@@ -90,13 +91,24 @@ def input_file(value: str, suffixes: Optional[set[str]] = None) -> Path:
     return path
 
 
+def ensure_output_path(path: Path) -> Path:
+    resolved = path.expanduser().resolve()
+    try:
+        resolved.relative_to(WORD_OUTPUT_ROOT)
+    except ValueError as exc:
+        raise ValueError(
+            f"Word 产物必须输出到 {WORD_OUTPUT_ROOT} 目录下：{resolved}"
+        ) from exc
+    return resolved
+
+
 def output_file(
     value: str,
     suffixes: Optional[set[str]] = None,
     *,
     overwrite: bool = False,
 ) -> Path:
-    path = Path(value).expanduser().resolve()
+    path = ensure_output_path(Path(value))
     if suffixes is not None and path.suffix.lower() not in suffixes:
         expected = "、".join(sorted(suffixes))
         raise ValueError(f"不支持的输出格式 {path.suffix}；允许：{expected}")
@@ -109,7 +121,7 @@ def output_file(
 
 
 def output_directory(value: str) -> Path:
-    path = Path(value).expanduser().resolve()
+    path = ensure_output_path(Path(value))
     if path.exists() and not path.is_dir():
         raise ValueError(f"输出路径不是目录：{path}")
     path.mkdir(parents=True, exist_ok=True)

@@ -15,6 +15,8 @@ import urllib.request
 from pathlib import Path
 from typing import NoReturn, Optional
 
+from _pdf_common import ensure_output_path
+
 DEFAULT_TIMEOUT_SECONDS = 60
 DEFAULT_MAX_BYTES = 100 * 1024 * 1024
 CHUNK_SIZE = 1024 * 1024
@@ -100,7 +102,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     output = Path(args.output).expanduser()
     if output.suffix.lower() != ".pdf":
         raise ValueError("output 必须以 .pdf 结尾")
-    args.output = output.resolve()
+    args.output = ensure_output_path(output)
     return args
 
 

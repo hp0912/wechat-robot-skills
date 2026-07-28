@@ -9,6 +9,7 @@ from typing import Any
 from _docx_common import (
     DOCX_INPUT_SUFFIXES,
     SkillArgumentParser,
+    ensure_output_path,
     input_file,
     safe_extract_docx,
     run_cli,
@@ -27,7 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> dict[str, Any]:
     args = build_parser().parse_args()
     source = input_file(args.input, DOCX_INPUT_SUFFIXES)
-    destination = Path(args.output_dir).expanduser().resolve()
+    destination = ensure_output_path(Path(args.output_dir))
     if destination.exists():
         if not destination.is_dir():
             raise ValueError(f"输出路径不是目录：{destination}")

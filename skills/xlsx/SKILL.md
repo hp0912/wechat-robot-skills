@@ -14,7 +14,7 @@ description: "创建、读取、编辑、修复、转换、重算、校验和渲
 - 外部程序只允许由固定脚本在内部以无 shell 参数数组方式调用。
 - 每次检查脚本返回的 JSON；只有 `ok` 为 `true` 时才继续。`status: errors_found` 虽然表示脚本成功运行，但工作簿不合格，必须修复。
 - 远程地址只交给 `download_workbook.py`；不要在回复、日志摘要或文件名中复述可能含敏感查询参数的完整 URL。
-- 不覆盖用户提供的源文件。创建或编辑结果写入 `output/xlsx/`，中间产物写入 `tmp/xlsx/<任务名>/`。
+- 不覆盖用户提供的源文件。Excel 最终文件一律写入 `/usr/local/src/excel/`，下载缓存、中间文件和渲染结果一律写入 `/usr/local/src/excel/tmp/<任务名>/`。始终传绝对路径；固定脚本会自动创建目录并拒绝该根目录之外的输出。
 - 环境已预置依赖，不安装软件包，也不提示用户安装依赖。
 
 ## 脚本清单
@@ -46,7 +46,7 @@ description: "创建、读取、编辑、修复、转换、重算、校验和渲
 调用 `scripts/download_workbook.py`：
 
 ```text
---url 'https://example.com/report.xlsx?signature=...' --output 'tmp/xlsx/<任务名>/source.xlsx'
+--url 'https://example.com/report.xlsx?signature=...' --output '/usr/local/src/excel/tmp/<任务名>/source.xlsx'
 ```
 
 可选参数：
@@ -87,13 +87,13 @@ CSV/TSV 只返回行数据，不存在工作表。`.xls` 必须先转换。
 调用 `scripts/apply_workbook.py`，新建时省略 `--input`，编辑时提供源文件：
 
 ```text
---output 'output/xlsx/result.xlsx' --spec '<JSON对象>'
+--output '/usr/local/src/excel/result.xlsx' --spec '<JSON对象>'
 ```
 
 或：
 
 ```text
---input 'source.xlsx' --output 'output/xlsx/result.xlsx' --spec-file 'tmp/xlsx/task/operations.json'
+--input 'source.xlsx' --output '/usr/local/src/excel/result.xlsx' --spec-file '/usr/local/src/excel/tmp/task/operations.json'
 ```
 
 目标已存在且确认是本次任务的旧产物时才传 `--overwrite`。输入含外部链接时脚本默认拒绝保存；只有用户明确接受缓存值可能丢失的风险时才传 `--allow-external-links`。`.xlsm` 必须继续输出 `.xlsm` 才能保留宏；只有用户明确同意丢弃宏时才输出 `.xlsx` 并传 `--drop-macros`。
@@ -167,7 +167,7 @@ CSV/TSV 只返回行数据，不存在工作表。`.xls` 必须先转换。
 调用 `scripts/convert_workbook.py`：
 
 ```text
---input 'legacy.xls' --output 'tmp/xlsx/task/source.xlsx'
+--input 'legacy.xls' --output '/usr/local/src/excel/tmp/task/source.xlsx'
 ```
 
 常见用法：
@@ -182,7 +182,7 @@ CSV/TSV 只返回行数据，不存在工作表。`.xls` 必须先转换。
 含公式的工作簿必须调用 `scripts/recalculate_workbook.py`：
 
 ```text
---input 'output/xlsx/result.xlsx' --output 'output/xlsx/result-recalculated.xlsx'
+--input '/usr/local/src/excel/result.xlsx' --output '/usr/local/src/excel/result-recalculated.xlsx'
 ```
 
 检查返回值：
@@ -198,7 +198,7 @@ CSV/TSV 只返回行数据，不存在工作表。`.xls` 必须先转换。
 调用 `scripts/render_workbook.py`：
 
 ```text
---input 'output/xlsx/result-recalculated.xlsx' --output-dir 'tmp/xlsx/task/rendered'
+--input '/usr/local/src/excel/result-recalculated.xlsx' --output-dir '/usr/local/src/excel/tmp/task/rendered'
 ```
 
 默认 150 DPI、单次最多 20 页。可传：

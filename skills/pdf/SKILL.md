@@ -16,6 +16,7 @@ description: "处理本地 PDF 文件或远程 HTTPS PDF 链接，包括安全�
 - 每次检查脚本返回的 JSON；只有 `ok` 为 `true` 时才继续。
 - 收到 `ok: false` 时，依据 `error` 调整合法参数或向用户说明失败原因，不要把参数改传给其他脚本碰运气。
 - 阅读或总结时只使用 `pages[]` 中 `usable_for_summary: true` 的文本。`needs_ocr: false` 时不得为了“常规检查”继续 OCR、渲染或调用图片识别。
+- PDF 最终文件一律写入 `/usr/local/src/pdf/`，下载缓存、中间文件和渲染结果一律写入 `/usr/local/src/pdf/tmp/<任务名>/`。始终传绝对路径；固定脚本会自动创建目录并拒绝该根目录之外的输出。
 - 不把 PDF 密码作为脚本参数；工具调用参数可能进入运行日志。
 
 ## 脚本清单
@@ -36,14 +37,14 @@ description: "处理本地 PDF 文件或远程 HTTPS PDF 链接，包括安全�
 
 ## 标准流程
 
-1. 为任务选择简短目录名，把中间文件放在 `tmp/pdfs/<任务名>/`。
+1. 为任务选择简短目录名，把中间文件放在 `/usr/local/src/pdf/tmp/<任务名>/`。
 2. 远程 HTTPS 链接先调用 `download_pdf.py`；本地文件直接进入下一步。
 3. 调用 `inspect_pdf.py` 检查文件。遇到加密 PDF 时停止处理，请用户提供已解密副本；当前固定脚本不接收密码。
 4. 阅读或总结时调用 `extract_text.py`。结果为 `usable_for_summary: true` 时使用可靠页文本并根据游标继续；同时为 `needs_ocr: false` 时直接回答，不调用 OCR、渲染或图片识别。
 5. 只有 `extract_text.py` 返回 `needs_ocr: true` 时，才对 `text_quality.suspect_pages` 调用 `ocr_text.py`。原生可靠文本优先，OCR 只补齐可疑页，不重复识别正常页。
 6. `ocr_text.py` 会在脚本内部临时渲染指定页面并交给本地 RapidOCR，完成后自动删除 PNG；普通扫描件解析不调用大模型识图，也不需要先调用 `render_pdf.py`。
 7. 仅在用户明确要求检查视觉版式，或任务涉及创建/修改 PDF 时调用 `render_pdf.py`。
-8. 创建或修改后的最终 PDF 写入 `output/pdf/`，重新执行检查、文本提取和全部页面渲染。
+8. 创建或修改后的最终 PDF 写入 `/usr/local/src/pdf/`，重新执行检查、文本提取和全部页面渲染。
 9. 最终产物位于临时目录之外且不再需要缓存时，调用 `cleanup_pdf_temp.py` 清理本次任务目录。
 
 ## 下载远程 PDF
@@ -53,7 +54,7 @@ description: "处理本地 PDF 文件或远程 HTTPS PDF 链接，包括安全�
 调用 `scripts/download_pdf.py`：
 
 ```text
---url 'https://example.com/document.pdf' --output 'tmp/pdfs/<任务名>/source.pdf'
+--url 'https://example.com/document.pdf' --output '/usr/local/src/pdf/tmp/<任务名>/source.pdf'
 ```
 
 可选参数：
@@ -69,7 +70,7 @@ description: "处理本地 PDF 文件或远程 HTTPS PDF 链接，包括安全�
 调用 `scripts/inspect_pdf.py`：
 
 ```text
---input 'tmp/pdfs/<任务名>/source.pdf'
+--input '/usr/local/src/pdf/tmp/<任务名>/source.pdf'
 ```
 
 使用返回的 `page_count`、`encrypted`、`metadata`、`page_layouts` 和 `form_field_count` 判断后续处理方式。不要直接调用 `pdfinfo`。
@@ -79,7 +80,7 @@ description: "处理本地 PDF 文件或远程 HTTPS PDF 链接，包括安全�
 首次调用 `scripts/extract_text.py`：
 
 ```text
---input 'tmp/pdfs/<任务名>/source.pdf'
+--input '/usr/local/src/pdf/tmp/<任务名>/source.pdf'
 ```
 
 默认使用 `auto` 引擎：先由 Poppler `pdftotext` 提取；结果不可用或命令不可用时自动尝试 `pdfplumber`，并可逐页选择质量更好的结果。脚本使用 `pypdf` 获取标准页数，并拒绝把页数不一致的提取结果当作成功。不要直接执行 `pdftotext`。
@@ -106,7 +107,7 @@ description: "处理本地 PDF 文件或远程 HTTPS PDF 链接，包括安全�
 仅当 `extract_text.py` 返回 `needs_ocr: true` 时调用 `scripts/ocr_text.py`。`--pages` 必须明确指定 `text_quality.suspect_pages` 中要读取的页，单次最多 4 页：
 
 ```text
---input 'tmp/pdfs/<任务名>/source.pdf' --pages '2,5-6'
+--input '/usr/local/src/pdf/tmp/<任务名>/source.pdf' --pages '2,5-6'
 ```
 
 默认以 260 DPI 临时渲染，并使用镜像中预置的 RapidOCR 与 ONNX Runtime 在本地识别。脚本不会联网下载模型，不会保留渲染图片，也不会调用大模型视觉能力。可选参数：
@@ -131,7 +132,7 @@ OCR 结果中的 `mean_confidence`、`line_count`、`render_seconds` 和 `ocr_se
 调用 `scripts/extract_tables.py`：
 
 ```text
---input 'tmp/pdfs/<任务名>/source.pdf' --start-page 1
+--input '/usr/local/src/pdf/tmp/<任务名>/source.pdf' --start-page 1
 ```
 
 默认单次最多处理 5 页、20 个表格和 2000 个单元格。可用 `--end-page`、`--start-table`、`--max-pages`、`--max-tables`、`--max-cells` 调整。若 `has_more: true`，把 `next_page` 传给 `--start-page`、`next_table` 传给 `--start-table` 后继续，并保留首次调用的 `--end-page`（如果指定）及其他提取选项。
@@ -146,7 +147,7 @@ OCR 结果中的 `mean_confidence`、`line_count`、`render_seconds` 和 `ocr_se
 不要因为输入是 PDF、需要总结、需要 OCR 或需要检查首页就自动调用本脚本；OCR 的临时渲染由 `ocr_text.py` 内部完成。调用脚本时不要直接执行 `pdftoppm`：
 
 ```text
---input 'tmp/pdfs/<任务名>/source.pdf' --output-dir 'tmp/pdfs/<任务名>/rendered' --start-page 1
+--input '/usr/local/src/pdf/tmp/<任务名>/source.pdf' --output-dir '/usr/local/src/pdf/tmp/<任务名>/rendered' --start-page 1
 ```
 
 默认 150 DPI、单次最多 10 页。可使用 `--end-page`、`--max-pages`、`--dpi`、`--timeout` 和 `--overwrite`。若 `has_more: true`，使用 `next_page` 继续，并保留首次调用的 `--end-page`（如果指定）、输出目录及其他渲染选项。脚本返回标准化的 `page-0001.png` 文件路径。
@@ -158,7 +159,7 @@ OCR 结果中的 `mean_confidence`、`line_count`、`render_seconds` 和 `ocr_se
 先使用 `write_file` 把内容写为 UTF-8 `.txt` 或 `.md` 文件，再调用 `scripts/create_pdf.py`：
 
 ```text
---input 'tmp/pdfs/<任务名>/content.md' --output 'output/pdf/<文件名>.pdf' --title '文档标题'
+--input '/usr/local/src/pdf/tmp/<任务名>/content.md' --output '/usr/local/src/pdf/<文件名>.pdf' --title '文档标题'
 ```
 
 脚本支持 Markdown 标题、项目符号和简单表格，自动选择可嵌入的 Unicode 字体并添加页码。可选参数：
@@ -178,13 +179,13 @@ OCR 结果中的 `mean_confidence`、`line_count`、`render_seconds` 和 `ocr_se
 合并：
 
 ```text
-merge --input 'a.pdf' --input 'b.pdf' --output 'output/pdf/merged.pdf'
+merge --input 'a.pdf' --input 'b.pdf' --output '/usr/local/src/pdf/merged.pdf'
 ```
 
 拆分指定范围：
 
 ```text
-split --input 'source.pdf' --output-dir 'output/pdf/split' --range 1-3 --range 4-6
+split --input 'source.pdf' --output-dir '/usr/local/src/pdf/split' --range 1-3 --range 4-6
 ```
 
 不传 `--range` 时每页生成一个 PDF。
@@ -192,7 +193,7 @@ split --input 'source.pdf' --output-dir 'output/pdf/split' --range 1-3 --range 4
 旋转指定页面：
 
 ```text
-rotate --input 'source.pdf' --output 'output/pdf/rotated.pdf' --pages '1,3-5' --degrees 90
+rotate --input 'source.pdf' --output '/usr/local/src/pdf/rotated.pdf' --pages '1,3-5' --degrees 90
 ```
 
 `--degrees` 只能是 `90`、`180` 或 `270`；不传 `--pages` 时旋转全部页面。目标已存在且确认可覆盖时添加 `--overwrite`。
@@ -202,10 +203,10 @@ rotate --input 'source.pdf' --output 'output/pdf/rotated.pdf' --pages '1,3-5' --
 调用 `scripts/cleanup_pdf_temp.py`：
 
 ```text
---task-dir 'tmp/pdfs/<任务名>'
+--task-dir '/usr/local/src/pdf/tmp/<任务名>'
 ```
 
-脚本只允许删除本 Skill 的 `tmp/pdfs/` 下一级任务目录，拒绝删除根目录、仓库目录或其他路径。
+脚本只允许删除 `/usr/local/src/pdf/tmp/` 下一级任务目录，拒绝删除根目录、仓库目录或其他路径。
 
 ## 质量要求
 

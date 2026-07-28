@@ -15,7 +15,7 @@ description: "创建、读取、编辑、转换、批注、接受修订、校验
 - 每次检查脚本返回 JSON；只有 `ok` 为 `true` 时才继续。`validate_document.py` 还必须返回 `status: valid`。
 - 只在需要读取图片、截图或扫描页中的文字时调用 `ocr_document.py`。只使用 `pages[]` 中 `usable_for_summary: true` 的 `text`；低置信度结果不得作为可靠正文。
 - 远程地址只交给 `download_document.py`；不要在回复、日志摘要或文件名中复述可能含敏感查询参数的完整 URL。
-- 不覆盖用户提供的源文件。最终结果写入 `output/docx/`，中间产物写入 `tmp/docx/<任务名>/`。
+- 不覆盖用户提供的源文件。Word 最终文件一律写入 `/usr/local/src/word/`，下载缓存、中间文件和渲染结果一律写入 `/usr/local/src/word/tmp/<任务名>/`。始终传绝对路径；固定脚本会自动创建目录并拒绝该根目录之外的输出。
 - 环境已预置依赖，不安装软件包，也不提示用户安装依赖。
 
 ## 脚本清单
@@ -55,7 +55,7 @@ description: "创建、读取、编辑、转换、批注、接受修订、校验
 调用 `scripts/download_document.py`：
 
 ```text
---url 'https://example.com/report.docx?signature=...' --output 'tmp/docx/<任务名>/source.docx'
+--url 'https://example.com/report.docx?signature=...' --output '/usr/local/src/word/tmp/<任务名>/source.docx'
 ```
 
 可选参数：
@@ -123,7 +123,7 @@ description: "创建、读取、编辑、转换、批注、接受修订、校验
 调用 `scripts/create_document.py`：
 
 ```text
---output 'output/docx/result.docx' --spec '<JSON对象>'
+--output '/usr/local/src/word/result.docx' --spec '<JSON对象>'
 ```
 
 内容较长时先把 JSON 写到任务临时目录，再传 `--spec-file`。目标是本次任务旧产物且确认可覆盖时才传 `--overwrite`。
@@ -230,7 +230,7 @@ description: "创建、读取、编辑、转换、批注、接受修订、校验
 调用 `scripts/edit_document.py`：
 
 ```text
---input 'source.docx' --output 'output/docx/edited.docx' --spec '<JSON对象>'
+--input 'source.docx' --output '/usr/local/src/word/edited.docx' --spec '<JSON对象>'
 ```
 
 JSON 顶层只有 `operations`。支持：
@@ -260,7 +260,7 @@ JSON 顶层只有 `operations`。支持：
 调用 `scripts/add_comment.py`：
 
 ```text
---input 'source.docx' --output 'output/docx/commented.docx' --find '费用上限' --comment '请确认该上限是否含税' --author '审阅人' --initials 'SR'
+--input 'source.docx' --output '/usr/local/src/word/commented.docx' --find '费用上限' --comment '请确认该上限是否含税' --author '审阅人' --initials 'SR'
 ```
 
 可选：
@@ -276,7 +276,7 @@ JSON 顶层只有 `operations`。支持：
 调用 `scripts/accept_changes.py`：
 
 ```text
---input 'redlined.docx' --output 'output/docx/clean.docx'
+--input 'redlined.docx' --output '/usr/local/src/word/clean.docx'
 ```
 
 脚本只执行固定的“接受全部修订”宏，不能运行用户提供的宏。必须检查：
@@ -290,7 +290,7 @@ JSON 顶层只有 `operations`。支持：
 调用 `scripts/convert_document.py`：
 
 ```text
---input 'legacy.doc' --output 'tmp/docx/task/source.docx'
+--input 'legacy.doc' --output '/usr/local/src/word/tmp/task/source.docx'
 ```
 
 支持：
@@ -317,7 +317,7 @@ JSON 顶层只有 `operations`。支持：
 调用 `scripts/validate_document.py`：
 
 ```text
---input 'output/docx/result.docx' --check-convert
+--input '/usr/local/src/word/result.docx' --check-convert
 ```
 
 必须满足：
@@ -336,7 +336,7 @@ JSON 顶层只有 `operations`。支持：
 调用 `scripts/render_document.py`：
 
 ```text
---input 'output/docx/result.docx' --output-dir 'tmp/docx/task/rendered'
+--input '/usr/local/src/word/result.docx' --output-dir '/usr/local/src/word/tmp/task/rendered'
 ```
 
 默认 150 DPI、单次最多 20 页。可传：

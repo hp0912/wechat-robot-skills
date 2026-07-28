@@ -11,6 +11,9 @@ from pathlib import Path
 from typing import Any, Callable, NoReturn, Optional
 
 
+PDF_OUTPUT_ROOT = Path("/usr/local/src/pdf")
+
+
 def quiet_pdf_library_logs() -> None:
     """Keep third-party recovery warnings out of the JSON tool response."""
     logging.getLogger("pdfminer").setLevel(logging.ERROR)
@@ -62,8 +65,19 @@ def input_pdf(value: str) -> Path:
     return path
 
 
+def ensure_output_path(path: Path) -> Path:
+    resolved = path.expanduser().resolve()
+    try:
+        resolved.relative_to(PDF_OUTPUT_ROOT)
+    except ValueError as exc:
+        raise ValueError(
+            f"PDF 产物必须输出到 {PDF_OUTPUT_ROOT} 目录下：{resolved}"
+        ) from exc
+    return resolved
+
+
 def output_pdf(value: str, overwrite: bool) -> Path:
-    path = Path(value).expanduser().resolve()
+    path = ensure_output_path(Path(value))
     if path.suffix.lower() != ".pdf":
         raise ValueError("PDF 输出路径必须以 .pdf 结尾")
     if path.exists() and not overwrite:
@@ -73,7 +87,7 @@ def output_pdf(value: str, overwrite: bool) -> Path:
 
 
 def output_directory(value: str) -> Path:
-    path = Path(value).expanduser().resolve()
+    path = ensure_output_path(Path(value))
     if path.exists() and not path.is_dir():
         raise ValueError(f"输出路径不是目录：{path}")
     path.mkdir(parents=True, exist_ok=True)

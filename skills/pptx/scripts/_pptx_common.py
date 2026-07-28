@@ -21,6 +21,7 @@ OOXML_PRESENTATION_SUFFIXES = {".pptx", ".potx", ".ppsx"}
 PRESENTATION_INPUT_SUFFIXES = OOXML_PRESENTATION_SUFFIXES | {".ppt"}
 PRESENTATION_OUTPUT_SUFFIXES = {".pptx", ".potx", ".pdf"}
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
+PPT_OUTPUT_ROOT = Path("/usr/local/src/ppt")
 
 MAX_ARCHIVE_MEMBERS = 20_000
 MAX_ARCHIVE_UNCOMPRESSED_BYTES = 1_073_741_824
@@ -92,13 +93,24 @@ def input_file(value: str, suffixes: Optional[set[str]] = None) -> Path:
     return path
 
 
+def ensure_output_path(path: Path) -> Path:
+    resolved = path.expanduser().resolve()
+    try:
+        resolved.relative_to(PPT_OUTPUT_ROOT)
+    except ValueError as exc:
+        raise ValueError(
+            f"PPT 产物必须输出到 {PPT_OUTPUT_ROOT} 目录下：{resolved}"
+        ) from exc
+    return resolved
+
+
 def output_file(
     value: str,
     suffixes: Optional[set[str]] = None,
     *,
     overwrite: bool = False,
 ) -> Path:
-    path = Path(value).expanduser().resolve()
+    path = ensure_output_path(Path(value))
     if suffixes is not None and path.suffix.lower() not in suffixes:
         expected = "、".join(sorted(suffixes))
         raise ValueError(f"不支持的输出格式 {path.suffix}；允许：{expected}")
@@ -111,7 +123,7 @@ def output_file(
 
 
 def output_directory(value: str) -> Path:
-    path = Path(value).expanduser().resolve()
+    path = ensure_output_path(Path(value))
     if path.exists() and not path.is_dir():
         raise ValueError(f"输出路径不是目录：{path}")
     path.mkdir(parents=True, exist_ok=True)

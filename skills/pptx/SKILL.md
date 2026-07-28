@@ -14,7 +14,7 @@ description: "创建、读取、编辑、复制页面、转换、校验和渲染
 - PptxGenJS、React Icons、Sharp、LibreOffice、Poppler 和 ZIP 操作只允许由固定脚本在内部调用。
 - 每次检查脚本返回的 JSON；只有 `ok` 为 `true` 时才继续。`validate_presentation.py` 还必须返回 `status: valid`、`issue_count: 0`。
 - 只在需要读取图片、截图或视觉图表中的文字时调用 `ocr_presentation.py`。只使用 `slides[]` 中 `usable_for_summary: true` 的 `text`；低置信度结果不得作为可靠正文。
-- 不覆盖用户提供的源文件。最终结果写入 `output/pptx/`，中间产物写入 `tmp/pptx/<任务名>/`。
+- 不覆盖用户提供的源文件。PPT 最终文件一律写入 `/usr/local/src/ppt/`，下载缓存、中间文件和渲染结果一律写入 `/usr/local/src/ppt/tmp/<任务名>/`。始终传绝对路径；固定脚本会自动创建目录并拒绝该根目录之外的输出。
 - 远程地址只交给 `download_presentation.py`；不要在回复、日志摘要或文件名中复述可能含敏感查询参数的完整 URL。
 - 环境已预置全部依赖，不安装软件包，也不提示用户安装依赖。
 
@@ -54,7 +54,7 @@ description: "创建、读取、编辑、复制页面、转换、校验和渲染
 只接受 HTTPS 地址。完整保留 URL 及查询参数传给脚本，但不要在回复或输出文件名中暴露查询参数。
 
 ```text
---url 'https://example.com/deck.pptx?signature=...' --output 'tmp/pptx/<任务名>/source.pptx'
+--url 'https://example.com/deck.pptx?signature=...' --output '/usr/local/src/ppt/tmp/<任务名>/source.pptx'
 ```
 
 可选参数：
@@ -84,7 +84,7 @@ description: "创建、读取、编辑、复制页面、转换、校验和渲染
 需要连续正文时调用：
 
 ```text
---input 'source.pptx' --output 'tmp/pptx/<任务名>/content.md'
+--input 'source.pptx' --output '/usr/local/src/ppt/tmp/<任务名>/content.md'
 ```
 
 Markdown 适合检查遗漏、错字和顺序，不代表页面版式。
@@ -114,7 +114,7 @@ Markdown 适合检查遗漏、错字和顺序，不代表页面版式。
 调用：
 
 ```text
---output 'output/pptx/result.pptx' --spec '<JSON对象>'
+--output '/usr/local/src/ppt/result.pptx' --spec '<JSON对象>'
 ```
 
 内容较长时先把 JSON 写入任务临时目录，再传 `--spec-file`。目标是本次任务旧产物且确认可覆盖时才传 `--overwrite`。
@@ -236,7 +236,7 @@ Markdown 适合检查遗漏、错字和顺序，不代表页面版式。
 需要图标时先调用：
 
 ```text
---library fi --name FiTrendingUp --color 2563EB --size 256 --output 'tmp/pptx/<任务名>/trend.png'
+--library fi --name FiTrendingUp --color 2563EB --size 256 --output '/usr/local/src/ppt/tmp/<任务名>/trend.png'
 ```
 
 允许的图标库：`fa6`、`fi`、`hi2`、`io5`、`lu`、`md`、`ri`、`tb`。把生成的 PNG 作为普通图片元素插入。
@@ -302,7 +302,7 @@ Markdown 适合检查遗漏、错字和顺序，不代表页面版式。
 调用：
 
 ```text
---input 'source.pptx' --output 'output/pptx/edited.pptx' --spec '<JSON对象>'
+--input 'source.pptx' --output '/usr/local/src/ppt/edited.pptx' --spec '<JSON对象>'
 ```
 
 JSON 顶层只有 `operations`，按数组顺序执行：
@@ -341,7 +341,7 @@ JSON 顶层只有 `operations`，按数组顺序执行：
 只对 `.pptx` 使用：
 
 ```text
---input 'template.pptx' --output 'tmp/pptx/<任务名>/expanded.pptx' --slide 2 --after 4
+--input 'template.pptx' --output '/usr/local/src/ppt/tmp/<任务名>/expanded.pptx' --slide 2 --after 4
 ```
 
 `slide` 是复制来源，`after` 是插入位置；省略 `after` 时紧跟来源页插入。脚本会更新页面清单、关系和内容类型，并移除不能安全共享的备注/批注关系。
@@ -381,13 +381,13 @@ JSON 顶层只有 `operations`，按数组顺序执行：
 结构校验：
 
 ```text
---input 'output/pptx/result.pptx' --check-render
+--input '/usr/local/src/ppt/result.pptx' --check-render
 ```
 
 模板派生结果：
 
 ```text
---input 'output/pptx/result.pptx' --original 'template.pptx' --check-render
+--input '/usr/local/src/ppt/result.pptx' --original 'template.pptx' --check-render
 ```
 
 必须满足：
@@ -402,7 +402,7 @@ JSON 顶层只有 `operations`，按数组顺序执行：
 渲染全部页面：
 
 ```text
---input 'output/pptx/result.pptx' --output-dir 'tmp/pptx/<任务名>/rendered' --contact-sheet --include-pdf
+--input '/usr/local/src/ppt/result.pptx' --output-dir '/usr/local/src/ppt/tmp/<任务名>/rendered' --contact-sheet --include-pdf
 ```
 
 默认 150 DPI、单次最多 30 页。可用 `--start-slide/--end-slide/--max-slides` 分批，复杂图表或小字可把 `--dpi` 提高到 180–220。联系表用于快速检查整体节奏，逐页 PNG 用于最终 QA。
