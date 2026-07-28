@@ -1,0 +1,4 @@
+interface:
+  display_name: "发送图片"
+  short_description: "将一个或多个本地图片文件或远程图片链接发送到当前微信会话"
+  default_prompt: "使用 $send-image 将这些本地图片或远程图片发送到当前微信会话。"

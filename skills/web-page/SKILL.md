@@ -245,5 +245,5 @@ tsx scripts/web_page.ts --url 'https://example.com' --mode screenshot --screensh
 - `content` 模式成功时，智能体应基于脚本输出给用户总结、解释或回答问题。
 - 自动化动作失败时，脚本会输出具体失败在第几个 action 及失败原因。
 - `screenshot` 模式成功且已发送图片时，脚本输出「页面截图已发送」。
-- `screenshot` 模式成功但未发送图片时，脚本输出本地 PNG 路径，智能体可继续用 `send-local-image` 技能发送。
+- `screenshot` 模式成功但未发送图片时，脚本输出本地 PNG 路径，智能体可继续用 `send-image` 技能发送。
 - 失败时，返回脚本输出的具体错误信息。
