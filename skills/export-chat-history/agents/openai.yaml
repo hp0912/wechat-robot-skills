@@ -1,0 +1,4 @@
+interface:
+  display_name: "导出聊天记录"
+  short_description: "将当前群聊指定时间范围的聊天记录整理为 Excel 并发送"
+  default_prompt: "使用 $export-chat-history 将当前群聊今天的聊天记录导出为 Excel 并发送给我。"
