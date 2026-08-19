@@ -437,6 +437,7 @@ def call_doubao(config: dict, prompt: str, model: str) -> list[str]:
 
     # Map friendly model names to actual endpoint model IDs
     model_map = {
+        "doubao-seedream-5-0-pro": "doubao-seedream-5-0-pro-260628",
         "doubao-seedream-4.5": "doubao-seedream-4-5-251128",
         "doubao-seedream-4.0": "doubao-seedream-4-0-251128",
         "doubao-seedream-3.0-t2i": "doubao-seedream-3-0-t2i-250415",

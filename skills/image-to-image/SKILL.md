@@ -36,7 +36,7 @@ description: "图片修改、图生图工具。基于输入的一张或多张图
     },
     "model": {
       "type": "string",
-      "description": "画图模型选择（可选）：即梦4.5(jimeng-4.5) / 即梦4.6(jimeng-4.6) / 即梦4.7(jimeng-4.7) / 即梦5.0(jimeng-5.0) / 即梦5.0 Pro(jimeng-5.0-pro) / 豆包图生图(doubao-seededit-3.0-i2i) / 造相基础版(Z-Image) / 造相蒸馏版(Z-Image-Turbo) / 造相图片编辑(Qwen-Image-Edit-2511) / OpenAI GPT Image(gpt-image-2)，默认: 空(none)。",
+      "description": "画图模型选择（可选）：即梦4.5(jimeng-4.5) / 即梦4.6(jimeng-4.6) / 即梦4.7(jimeng-4.7) / 即梦5.0(jimeng-5.0) / 即梦5.0 Pro(jimeng-5.0-pro) / 豆包5.0 Pro(doubao-seedream-5-0-pro) / 豆包图生图(doubao-seededit-3.0-i2i) / 造相基础版(Z-Image) / 造相蒸馏版(Z-Image-Turbo) / 造相图片编辑(Qwen-Image-Edit-2511) / OpenAI GPT Image(gpt-image-2)，默认: 空(none)。",
       "enum": [
         "none",
         "jimeng-4.5",
@@ -44,6 +44,7 @@ description: "图片修改、图生图工具。基于输入的一张或多张图
         "jimeng-4.7",
         "jimeng-5.0",
         "jimeng-5.0-pro",
+        "doubao-seedream-5-0-pro",
         "doubao-seededit-3.0-i2i",
         "Z-Image",
         "Z-Image-Turbo",

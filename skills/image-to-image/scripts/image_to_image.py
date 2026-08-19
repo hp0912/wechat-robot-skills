@@ -463,6 +463,7 @@ def call_doubao(config: dict, prompt: str, model: str, image: str) -> list[str]:
         model = "doubao-seededit-3.0-i2i"
 
     model_map = {
+        "doubao-seedream-5-0-pro": "doubao-seedream-5-0-pro-260628",
         "doubao-seededit-3.0-i2i": "doubao-seededit-3-0-i2i-250628",
     }
     actual_model = model_map.get(model, model)
