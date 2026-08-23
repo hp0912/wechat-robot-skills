@@ -596,7 +596,7 @@ def call_openai(config: dict, prompt: str, model: str, images: list[str],
 # ---------------------------------------------------------------------------
 
 JIMENG_MODELS = {"jimeng-4.5", "jimeng-4.6", "jimeng-4.7", "jimeng-5.0", "jimeng-5.0-pro"}
-DOUBAO_MODELS = {"doubao-seededit-3.0-i2i"}
+DOUBAO_MODELS = {"doubao-seedream-5-0-pro", "doubao-seedream-5-0", "doubao-seededit-3.0-i2i"}
 ZIMAGE_MODELS = {"Z-Image", "Z-Image-Turbo", "Qwen-Image-Edit-2511"}
 OPENAI_MODELS = {"gpt-image-2"}
 
