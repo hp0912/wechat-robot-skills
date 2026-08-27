@@ -1703,6 +1703,9 @@ function postJson(
   timeoutMs: number,
 ): Promise<string> {
   return new Promise<string>((resolve, reject) => {
+    const privateToken = (
+      process.env.ROBOT_CLIENT_PRIVATE_TOKEN ?? ""
+    ).trim();
     const parsed = new URL(url);
     const payload = Buffer.from(JSON.stringify(body), "utf8");
     const request = http.request(
@@ -1714,6 +1717,7 @@ function postJson(
         headers: {
           "Content-Type": "application/json",
           "Content-Length": payload.length,
+          "X-Private-Token": privateToken,
         },
         timeout: timeoutMs,
       },

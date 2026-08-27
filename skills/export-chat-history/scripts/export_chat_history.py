@@ -525,6 +525,10 @@ def _raise_for_client_error(payload: dict[str, Any]) -> None:
         raise RuntimeError(message)
 
 
+def _client_private_token() -> str:
+    return os.environ.get("ROBOT_CLIENT_PRIVATE_TOKEN", "").strip()
+
+
 def _send_file(client_port: str, chat_room_id: str, path: Path) -> None:
     url = (
         f"http://127.0.0.1:{client_port}"
@@ -536,7 +540,10 @@ def _send_file(client_port: str, chat_room_id: str, path: Path) -> None:
     request = urllib.request.Request(
         url,
         data=body,
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "X-Private-Token": _client_private_token(),
+        },
         method="POST",
     )
     try:

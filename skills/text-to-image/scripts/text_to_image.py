@@ -161,6 +161,10 @@ def load_drawing_settings(conn, from_wx_id: str) -> tuple[bool, dict]:
 # API callers
 # ---------------------------------------------------------------------------
 
+def _client_private_token() -> str:
+    return os.environ.get("ROBOT_CLIENT_PRIVATE_TOKEN", "").strip()
+
+
 def _http_post_json(url: str, body: dict, headers: dict, timeout: int = 300) -> dict:
     data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
@@ -360,7 +364,15 @@ def _send_image_outputs(client_port: str, from_wx_id: str, image_outputs: list[s
             "to_wxid": from_wx_id,
             "image_urls": remote_urls,
         }
-        response = _http_post_json(send_url, send_body, {"Content-Type": "application/json"}, timeout=300)
+        response = _http_post_json(
+            send_url,
+            send_body,
+            {
+                "Content-Type": "application/json",
+                "X-Private-Token": _client_private_token(),
+            },
+            timeout=300,
+        )
         _debug_response("send image url response", response)
 
     for file_path in local_paths:
@@ -369,7 +381,15 @@ def _send_image_outputs(client_port: str, from_wx_id: str, image_outputs: list[s
             "to_wxid": from_wx_id,
             "file_path": file_path,
         }
-        response = _http_post_json(send_url, send_body, {"Content-Type": "application/json"}, timeout=300)
+        response = _http_post_json(
+            send_url,
+            send_body,
+            {
+                "Content-Type": "application/json",
+                "X-Private-Token": _client_private_token(),
+            },
+            timeout=300,
+        )
         _debug_response("send image local response", response)
 
 

@@ -31,6 +31,10 @@ def _require_env(name: str) -> str:
     return value
 
 
+def _client_private_token() -> str:
+    return os.environ.get("ROBOT_CLIENT_PRIVATE_TOKEN", "").strip()
+
+
 def _positive_int_env(name: str) -> int:
     raw = _require_env(name)
     try:
@@ -80,7 +84,10 @@ def _post_json(url: str, body: dict[str, Any]) -> dict[str, Any]:
     request = urllib.request.Request(
         url,
         data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "X-Private-Token": _client_private_token(),
+        },
         method="POST",
     )
     try:

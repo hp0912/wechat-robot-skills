@@ -43,6 +43,10 @@ class AmbiguousCreateError(RuntimeError):
     """The POST may have reached the server, so retrying could create a duplicate."""
 
 
+def _client_private_token() -> str:
+    return os.environ.get("ROBOT_CLIENT_PRIVATE_TOKEN", "").strip()
+
+
 class SkillArgumentParser(argparse.ArgumentParser):
     def error(self, message: str) -> NoReturn:
         raise ValueError(f"参数错误：{message}")
@@ -310,7 +314,11 @@ def _pick_unique_member(
 
 
 def _get_json(url: str, timeout: int = 15) -> dict[str, Any]:
-    request = urllib.request.Request(url, method="GET")
+    request = urllib.request.Request(
+        url,
+        headers={"X-Private-Token": _client_private_token()},
+        method="GET",
+    )
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             response_text = response.read().decode("utf-8", errors="replace")
@@ -435,7 +443,10 @@ def _post_json(url: str, payload: dict[str, Any], timeout: int = 30) -> dict[str
     request = urllib.request.Request(
         url,
         data=body,
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "X-Private-Token": _client_private_token(),
+        },
         method="POST",
     )
 

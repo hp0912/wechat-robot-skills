@@ -190,6 +190,10 @@ def _client_base_url(client_port: str) -> str:
     return f"http://127.0.0.1:{client_port}"
 
 
+def _client_private_token() -> str:
+    return os.environ.get("ROBOT_CLIENT_PRIVATE_TOKEN", "").strip()
+
+
 def _build_url(base_url: str, path: str, params: dict[str, object] | None = None) -> str:
     url = f"{base_url}{path}"
     if not params:
@@ -199,8 +203,13 @@ def _build_url(base_url: str, path: str, params: dict[str, object] | None = None
 
 
 def _http_get_bytes(url: str, timeout: int = 300) -> tuple[bytes, dict[str, str]]:
+    request = urllib.request.Request(
+        url,
+        headers={"X-Private-Token": _client_private_token()},
+        method="GET",
+    )
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as resp:
+        with urllib.request.urlopen(request, timeout=timeout) as resp:
             headers = {key.lower(): value for key, value in resp.headers.items()}
             return resp.read(), headers
     except urllib.error.HTTPError as exc:
@@ -240,7 +249,10 @@ def _http_post_multipart(
     req = urllib.request.Request(
         url,
         data=body,
-        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        headers={
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "X-Private-Token": _client_private_token(),
+        },
         method="POST",
     )
     try:

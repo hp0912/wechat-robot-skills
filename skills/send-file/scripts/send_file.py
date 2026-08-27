@@ -15,6 +15,10 @@ sys.stderr = sys.stdout
 MAX_FILE_SIZE = 25 * 1024 * 1024
 
 
+def _client_private_token() -> str:
+    return os.environ.get("ROBOT_CLIENT_PRIVATE_TOKEN", "").strip()
+
+
 def _raise_for_client_error(response: dict) -> None:
     if not response:
         return
@@ -40,7 +44,10 @@ def _http_post_json(url: str, body: dict, timeout: int = 300) -> dict:
     req = urllib.request.Request(
         url,
         data=data,
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "X-Private-Token": _client_private_token(),
+        },
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:

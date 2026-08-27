@@ -30,6 +30,10 @@ DEFAULT_RESOLUTION = "720p"
 DEFAULT_DURATION = 5
 
 
+def _client_private_token() -> str:
+    return os.environ.get("ROBOT_CLIENT_PRIVATE_TOKEN", "").strip()
+
+
 def _skill_root() -> Path:
     script_dir = Path(__file__).resolve().parent
     return script_dir.parent
@@ -193,7 +197,15 @@ def send_videos(from_wx_id: str, video_urls: list[str]) -> None:
         "to_wxid": from_wx_id,
         "video_urls": [url for url in video_urls if url],
     }
-    _http_post_json(send_url, send_body, {"Content-Type": "application/json"}, timeout=60)
+    _http_post_json(
+        send_url,
+        send_body,
+        {
+            "Content-Type": "application/json",
+            "X-Private-Token": _client_private_token(),
+        },
+        timeout=60,
+    )
 
 
 def call_jimeng_video(

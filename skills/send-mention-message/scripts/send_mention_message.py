@@ -14,6 +14,10 @@ from pathlib import Path
 sys.stderr = sys.stdout
 
 
+def _client_private_token() -> str:
+    return os.environ.get("ROBOT_CLIENT_PRIVATE_TOKEN", "").strip()
+
+
 def _skill_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
@@ -94,7 +98,10 @@ def _http_post_json(url: str, body: dict, timeout: int = 300) -> dict:
     req = urllib.request.Request(
         url,
         data=data,
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "X-Private-Token": _client_private_token(),
+        },
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:

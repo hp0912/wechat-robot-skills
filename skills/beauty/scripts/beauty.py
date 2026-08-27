@@ -17,6 +17,10 @@ FETCH_API_URL = "https://api.pearapi.ai/api/today_wife"
 FALLBACK_TEXT = "今天的美女图片暂时没拿到，等我再找找。"
 
 
+def _client_private_token() -> str:
+    return os.environ.get("ROBOT_CLIENT_PRIVATE_TOKEN", "").strip()
+
+
 def fetch_image_url() -> str | None:
     try:
         with urllib.request.urlopen(FETCH_API_URL, timeout=10) as response:
@@ -52,7 +56,10 @@ def send_image(image_url: str) -> bool:
     request = urllib.request.Request(
         api_url,
         data=body,
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "X-Private-Token": _client_private_token(),
+        },
         method="POST",
     )
 

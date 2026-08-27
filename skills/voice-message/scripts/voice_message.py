@@ -59,6 +59,10 @@ MAX_CONTENT_LENGTH = 260
 STREAM_END_CODE = 20000000
 
 
+def _client_private_token() -> str:
+    return os.environ.get("ROBOT_CLIENT_PRIVATE_TOKEN", "").strip()
+
+
 def _skill_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
@@ -252,7 +256,11 @@ def _download_referenced_voice_clone(message_id: str) -> str:
         f"http://127.0.0.1:{client_port}/api/v1/robot/chat/voice/download"
         f"?message_id={encoded_message_id}"
     )
-    req = urllib.request.Request(download_url, method="GET")
+    req = urllib.request.Request(
+        download_url,
+        headers={"X-Private-Token": _client_private_token()},
+        method="GET",
+    )
     try:
         with urllib.request.urlopen(req, timeout=60) as response:
             wav_data = response.read()
@@ -836,7 +844,10 @@ def send_voice(from_wx_id: str, audio_data: bytes, audio_format: str) -> None:
         req = urllib.request.Request(
             send_url,
             data=body,
-            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+            headers={
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+                "X-Private-Token": _client_private_token(),
+            },
             method="POST",
         )
         try:
