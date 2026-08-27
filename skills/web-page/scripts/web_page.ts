@@ -8,6 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import type { IncomingMessage } from "node:http";
+import { pathToFileURL } from "node:url";
 import { parseArgs as parseNodeArgs } from "node:util";
 
 const DEFAULT_VIEWPORT_WIDTH = 1365;
@@ -18,6 +19,19 @@ const DEFAULT_MAX_CHARS = 16000;
 const DEFAULT_ACTION_TIMEOUT_MS = 15000;
 const DEFAULT_ACTION_WAIT_MS = 300;
 const DEFAULT_TIMEZONE = "Asia/Shanghai";
+const LOCAL_FILE_PROTOCOLS = new Set(["file:", "filesystem:"]);
+const LOCAL_FILE_BLOCK_PATTERNS = ["file://*", "filesystem:*"];
+const PAGE_TARGET_TYPES = new Set([
+  "page",
+  "iframe",
+  "webview",
+  "background_page",
+]);
+const TARGET_AUTO_ATTACH_OPTIONS = {
+  autoAttach: true,
+  waitForDebuggerOnStart: true,
+  flatten: true,
+};
 const WEIXIN_USER_AGENT =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.62(0x18003e2f) NetType/WIFI Language/zh_CN";
 
@@ -124,6 +138,12 @@ interface ElementPoint {
   x: number;
   y: number;
   description: string;
+  navigationUrl: string;
+}
+
+interface PageSession {
+  targetId: string;
+  sessionId: string;
 }
 
 interface ExtractedLink {
@@ -371,7 +391,48 @@ function parseActions(
   );
 }
 
-function validateUrl(value: string): string {
+function localFileProtocol(value: string): string | null {
+  let candidate = String(value || "").trim();
+  if (!candidate) {
+    return null;
+  }
+
+  for (let depth = 0; depth < 4; depth += 1) {
+    const lowered = candidate.toLowerCase();
+    if (lowered.startsWith("view-source:")) {
+      candidate = candidate.slice("view-source:".length);
+      continue;
+    }
+    if (lowered.startsWith("blob:")) {
+      candidate = candidate.slice("blob:".length);
+      continue;
+    }
+    try {
+      const protocol = new URL(candidate).protocol.toLowerCase();
+      return LOCAL_FILE_PROTOCOLS.has(protocol) ? protocol : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function blockedLocalFileUrlFromLogText(value: string): string {
+  const text = String(value || "");
+  if (!/(?:not allowed to load local resource|refused to load)/i.test(text)) {
+    return "";
+  }
+  const match = text.match(
+    /(?:view-source:|blob:)*(?:file|filesystem):[^\s"'<>)]*/i,
+  );
+  return match ? match[0] : "";
+}
+
+export function isLocalFileUrl(value: string): boolean {
+  return localFileProtocol(value) !== null;
+}
+
+export function validateUrl(value: string): string {
   if (!value || !value.trim()) {
     throw new Error("缺少网页链接");
   }
@@ -385,6 +446,58 @@ function validateUrl(value: string): string {
     throw new Error("网页链接必须是 http 或 https 地址");
   }
   return parsed.toString();
+}
+
+class LocalFileAccessGuard {
+  private blockedError: Error | null = null;
+  private readonly blockedPromise: Promise<Error>;
+  private resolveBlocked!: (error: Error) => void;
+
+  constructor() {
+    this.blockedPromise = new Promise<Error>((resolve) => {
+      this.resolveBlocked = resolve;
+    });
+  }
+
+  block(url: string, source: string): boolean {
+    const protocol = localFileProtocol(url);
+    if (!protocol) {
+      return false;
+    }
+    if (!this.blockedError) {
+      this.blockedError = new Error(
+        `已阻止浏览器通过${source}访问本地文件协议 ${protocol}`,
+      );
+      this.resolveBlocked(this.blockedError);
+    }
+    return true;
+  }
+
+  fail(error: unknown, source: string): void {
+    if (this.blockedError) {
+      return;
+    }
+    this.blockedError = new Error(
+      `${source}失败: ${errorMessage(error)}`,
+    );
+    this.resolveBlocked(this.blockedError);
+  }
+
+  throwIfBlocked(): void {
+    if (this.blockedError) {
+      throw this.blockedError;
+    }
+  }
+
+  async race<T>(operation: Promise<T>): Promise<T> {
+    this.throwIfBlocked();
+    const result = await Promise.race([
+      operation,
+      this.blockedPromise.then((error) => Promise.reject(error)),
+    ]);
+    this.throwIfBlocked();
+    return result;
+  }
 }
 
 function shouldUseWeixinUserAgent(url: string): boolean {
@@ -686,6 +799,15 @@ interface CdpEventListener {
   resolve: (params: Record<string, unknown>) => void;
 }
 
+interface CdpEventHandler {
+  method: string;
+  sessionId?: string;
+  handle: (
+    params: Record<string, unknown>,
+    sessionId: string | undefined,
+  ) => void | Promise<void>;
+}
+
 interface CdpMessage {
   id?: number;
   method?: string;
@@ -700,6 +822,7 @@ class CdpClient {
   private nextId: number;
   private readonly pending: Map<number, PendingRequest>;
   private listeners: CdpEventListener[];
+  private handlers: CdpEventHandler[];
   private ws: WebSocket | null;
 
   constructor(websocketUrl: string) {
@@ -707,6 +830,7 @@ class CdpClient {
     this.nextId = 1;
     this.pending = new Map();
     this.listeners = [];
+    this.handlers = [];
     this.ws = null;
   }
 
@@ -783,6 +907,25 @@ class CdpClient {
         listener.resolve(message.params || {});
         this.listeners = this.listeners.filter((item) => item !== listener);
       }
+      for (const handler of [...this.handlers]) {
+        if (handler.method !== message.method) {
+          continue;
+        }
+        if (handler.sessionId && handler.sessionId !== message.sessionId) {
+          continue;
+        }
+        try {
+          const handled = handler.handle(
+            message.params || {},
+            message.sessionId,
+          );
+          if (handled instanceof Promise) {
+            void handled.catch(() => undefined);
+          }
+        } catch {
+          // Security-sensitive handlers report failures through their guard.
+        }
+      }
     }
   }
 
@@ -825,6 +968,18 @@ class CdpClient {
     );
   }
 
+  onEvent(
+    method: string,
+    handle: CdpEventHandler["handle"],
+    sessionId?: string,
+  ): () => void {
+    const handler: CdpEventHandler = { method, sessionId, handle };
+    this.handlers.push(handler);
+    return () => {
+      this.handlers = this.handlers.filter((item) => item !== handler);
+    };
+  }
+
   close(): void {
     if (this.ws) {
       this.ws.close();
@@ -832,7 +987,247 @@ class CdpClient {
   }
 }
 
-async function createPage(client: CdpClient, params: Params): Promise<string> {
+function stringField(
+  value: Record<string, unknown> | undefined,
+  key: string,
+): string {
+  const field = value?.[key];
+  return typeof field === "string" ? field : "";
+}
+
+function headerValue(
+  headers: Record<string, unknown> | undefined,
+  name: string,
+): string {
+  if (!headers) {
+    return "";
+  }
+  const normalizedName = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === normalizedName && value !== undefined) {
+      return String(value);
+    }
+  }
+  return "";
+}
+
+function inspectRedirectResponse(
+  rawResponse: unknown,
+  guard: LocalFileAccessGuard,
+): void {
+  if (!isPlainObject(rawResponse)) {
+    return;
+  }
+  const status = Number(rawResponse.status ?? 0);
+  if (status < 300 || status >= 400) {
+    return;
+  }
+  const headers = isPlainObject(rawResponse.headers)
+    ? rawResponse.headers
+    : undefined;
+  const location = headerValue(headers, "location");
+  if (!location) {
+    return;
+  }
+  const responseUrl = stringField(rawResponse, "url");
+  try {
+    guard.block(new URL(location, responseUrl || undefined).toString(), "HTTP 重定向");
+  } catch {
+    guard.block(location, "HTTP 重定向");
+  }
+}
+
+async function installSessionLocalFileGuards(
+  client: CdpClient,
+  sessionId: string,
+  guard: LocalFileAccessGuard,
+): Promise<void> {
+  client.onEvent(
+    "Page.frameRequestedNavigation",
+    (params) => {
+      guard.block(stringField(params, "url"), "页面导航");
+    },
+    sessionId,
+  );
+  client.onEvent(
+    "Page.frameStartedNavigating",
+    (params) => {
+      guard.block(stringField(params, "url"), "页面导航");
+    },
+    sessionId,
+  );
+  client.onEvent(
+    "Page.frameNavigated",
+    (params) => {
+      if (!isPlainObject(params.frame)) {
+        return;
+      }
+      guard.block(stringField(params.frame, "url"), "页面导航");
+      guard.block(stringField(params.frame, "unreachableUrl"), "页面导航");
+    },
+    sessionId,
+  );
+  client.onEvent(
+    "Page.windowOpen",
+    (params) => {
+      guard.block(stringField(params, "url"), "弹窗");
+    },
+    sessionId,
+  );
+  client.onEvent(
+    "Log.entryAdded",
+    (params) => {
+      const entry = isPlainObject(params.entry) ? params.entry : undefined;
+      guard.block(stringField(entry, "url"), "浏览器安全日志");
+      guard.block(
+        blockedLocalFileUrlFromLogText(stringField(entry, "text")),
+        "浏览器安全日志",
+      );
+    },
+    sessionId,
+  );
+  client.onEvent(
+    "Network.requestWillBeSent",
+    (params) => {
+      if (isPlainObject(params.request)) {
+        guard.block(stringField(params.request, "url"), "网络请求");
+      }
+      inspectRedirectResponse(params.redirectResponse, guard);
+    },
+    sessionId,
+  );
+  client.onEvent(
+    "Network.responseReceived",
+    (params) => {
+      inspectRedirectResponse(params.response, guard);
+    },
+    sessionId,
+  );
+  client.onEvent(
+    "Fetch.requestPaused",
+    (params) => {
+      void (async () => {
+        const requestId = stringField(params, "requestId");
+        const request = isPlainObject(params.request)
+          ? params.request
+          : undefined;
+        const requestUrl = stringField(request, "url");
+        if (guard.block(requestUrl, "网络请求")) {
+          await client.send(
+            "Fetch.failRequest",
+            { requestId, errorReason: "BlockedByClient" },
+            sessionId,
+          );
+          return;
+        }
+        await client.send("Fetch.continueRequest", { requestId }, sessionId);
+      })().catch((error) => guard.fail(error, "本地文件请求拦截"));
+    },
+    sessionId,
+  );
+
+  await client.send("Page.enable", {}, sessionId);
+  await client.send("Network.enable", {}, sessionId);
+  await client.send("Log.enable", {}, sessionId);
+  await client.send(
+    "Network.setBlockedURLs",
+    { urls: LOCAL_FILE_BLOCK_PATTERNS },
+    sessionId,
+  );
+  await client.send(
+    "Fetch.enable",
+    {
+      patterns: LOCAL_FILE_BLOCK_PATTERNS.map((urlPattern) => ({
+        urlPattern,
+        requestStage: "Request",
+      })),
+    },
+    sessionId,
+  );
+}
+
+async function enableNewTargetLocalFileGuards(
+  client: CdpClient,
+  primaryPage: PageSession,
+  guard: LocalFileAccessGuard,
+): Promise<void> {
+  const guardedTargetIds = new Set([primaryPage.targetId]);
+
+  const closeBlockedTarget = (targetId: string): void => {
+    if (!targetId) {
+      return;
+    }
+    void client
+      .send("Target.closeTarget", { targetId })
+      .catch(() => undefined);
+  };
+
+  const inspectTargetInfo = (rawTargetInfo: unknown): boolean => {
+    if (!isPlainObject(rawTargetInfo)) {
+      return false;
+    }
+    const targetUrl = stringField(rawTargetInfo, "url");
+    if (!guard.block(targetUrl, "新页面")) {
+      return false;
+    }
+    closeBlockedTarget(stringField(rawTargetInfo, "targetId"));
+    return true;
+  };
+
+  client.onEvent("Target.targetCreated", (params) => {
+    inspectTargetInfo(params.targetInfo);
+  });
+  client.onEvent("Target.targetInfoChanged", (params) => {
+    inspectTargetInfo(params.targetInfo);
+  });
+  client.onEvent("Target.attachedToTarget", (params) => {
+    void (async () => {
+      const sessionId = stringField(params, "sessionId");
+      const targetInfo = isPlainObject(params.targetInfo)
+        ? params.targetInfo
+        : undefined;
+      const targetId = stringField(targetInfo, "targetId");
+      const targetType = stringField(targetInfo, "type");
+      const waitingForDebugger = Boolean(params.waitingForDebugger);
+
+      if (!sessionId) {
+        throw new Error("新页面缺少 CDP sessionId");
+      }
+      if (inspectTargetInfo(targetInfo)) {
+        return;
+      }
+      if (
+        PAGE_TARGET_TYPES.has(targetType) &&
+        !guardedTargetIds.has(targetId)
+      ) {
+        guardedTargetIds.add(targetId);
+        await installSessionLocalFileGuards(client, sessionId, guard);
+      }
+      await client.send(
+        "Target.setAutoAttach",
+        TARGET_AUTO_ATTACH_OPTIONS,
+        sessionId,
+      );
+      if (waitingForDebugger) {
+        await client.send("Runtime.runIfWaitingForDebugger", {}, sessionId);
+      }
+    })().catch((error) => guard.fail(error, "新页面本地文件防护"));
+  });
+
+  await client.send("Target.setDiscoverTargets", { discover: true });
+  await client.send("Target.setAutoAttach", TARGET_AUTO_ATTACH_OPTIONS);
+  await client.send(
+    "Target.setAutoAttach",
+    TARGET_AUTO_ATTACH_OPTIONS,
+    primaryPage.sessionId,
+  );
+}
+
+async function createPage(
+  client: CdpClient,
+  params: Params,
+  guard: LocalFileAccessGuard,
+): Promise<PageSession> {
   const target = await client.send<{ targetId: string }>(
     "Target.createTarget",
     {
@@ -847,9 +1242,8 @@ async function createPage(client: CdpClient, params: Params): Promise<string> {
     },
   );
   const sessionId = attached.sessionId;
-  await client.send("Page.enable", {}, sessionId);
+  await installSessionLocalFileGuards(client, sessionId, guard);
   await client.send("Runtime.enable", {}, sessionId);
-  await client.send("Network.enable", {}, sessionId);
   if (shouldUseWeixinUserAgent(params.url)) {
     await client.send(
       "Emulation.setUserAgentOverride",
@@ -920,22 +1314,33 @@ window.navigator.permissions.query = (params) =>
     },
     sessionId,
   );
-  return sessionId;
+  return { targetId: target.targetId, sessionId };
 }
 
 async function navigate(
   client: CdpClient,
   sessionId: string,
   params: Params,
+  guard: LocalFileAccessGuard,
 ): Promise<void> {
   const loadEvent = client
     .waitForEvent("Page.loadEventFired", sessionId, params.timeoutMs)
     .catch(() => null);
-  await client.send("Page.navigate", { url: params.url }, sessionId);
-  await loadEvent;
-  if (params.waitMs > 0) {
-    await wait(params.waitMs);
+  const navigation = await guard.race(
+    client.send<{ errorText?: string }>(
+      "Page.navigate",
+      { url: params.url },
+      sessionId,
+    ),
+  );
+  if (navigation.errorText) {
+    throw new Error(`网页导航失败: ${navigation.errorText}`);
   }
+  await guard.race(loadEvent);
+  if (params.waitMs > 0) {
+    await guard.race(wait(params.waitMs));
+  }
+  guard.throwIfBlocked();
 }
 
 interface RuntimeEvaluateResult {
@@ -1005,10 +1410,12 @@ async function getElementPoint(
     el.scrollIntoView({ block: 'center', inline: 'center' });
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const rect = el.getBoundingClientRect();
+    const anchor = el.closest('a[href]');
     return {
       x: Math.max(0, Math.min(window.innerWidth - 1, rect.left + rect.width / 2)),
       y: Math.max(0, Math.min(window.innerHeight - 1, rect.top + rect.height / 2)),
       description: action.selector || action.text || textOf(el),
+      navigationUrl: anchor ? anchor.href : '',
     };
   })()`,
   );
@@ -1023,8 +1430,12 @@ async function clickElement(
   client: CdpClient,
   sessionId: string,
   action: NormalizedAction,
+  guard: LocalFileAccessGuard,
 ): Promise<void> {
   const point = await getElementPoint(client, sessionId, action);
+  if (guard.block(point.navigationUrl, "点击链接")) {
+    guard.throwIfBlocked();
+  }
   const clickCount = Math.max(
     1,
     parseInteger(action.click_count, "click_count", 1),
@@ -1380,10 +1791,11 @@ async function runSingleAction(
   client: CdpClient,
   sessionId: string,
   action: NormalizedAction,
+  guard: LocalFileAccessGuard,
 ): Promise<void> {
   switch (action.type) {
     case "click":
-      await clickElement(client, sessionId, action);
+      await clickElement(client, sessionId, action, guard);
       return;
     case "fill":
       await fillElement(client, sessionId, action);
@@ -1427,8 +1839,10 @@ async function runActions(
   client: CdpClient,
   sessionId: string,
   params: Params,
+  guard: LocalFileAccessGuard,
 ): Promise<void> {
   if (!params.actions.length) {
+    guard.throwIfBlocked();
     return;
   }
 
@@ -1440,17 +1854,20 @@ async function runActions(
             .waitForEvent("Page.loadEventFired", sessionId, action.timeoutMs)
             .catch(() => null)
         : null;
-      await withTimeout(
-        runSingleAction(client, sessionId, action),
-        action.timeoutMs,
-        `执行 action 超时: ${action.type}`,
+      await guard.race(
+        withTimeout(
+          runSingleAction(client, sessionId, action, guard),
+          action.timeoutMs,
+          `执行 action 超时: ${action.type}`,
+        ),
       );
       if (loadEvent) {
-        await loadEvent;
+        await guard.race(loadEvent);
       }
       if (action.waitMsAfter > 0) {
-        await wait(action.waitMsAfter);
+        await guard.race(wait(action.waitMsAfter));
       }
+      guard.throwIfBlocked();
     } catch (error) {
       throw new Error(
         `第 ${index + 1} 个 action(${action.type}) 执行失败: ${errorMessage(error)}`,
@@ -1774,18 +2191,28 @@ async function run(): Promise<void> {
   const params = normalizeParams(parseCliArgs(process.argv.slice(2)));
   const browser = await launchChromium(params);
   const client = new CdpClient(browser.websocketUrl);
+  const guard = new LocalFileAccessGuard();
   try {
     await client.connect(params.timeoutMs);
-    const sessionId = await createPage(client, params);
-    await navigate(client, sessionId, params);
-    await runActions(client, sessionId, params);
+    const page = await createPage(client, params, guard);
+    await enableNewTargetLocalFileGuards(client, page, guard);
+    await navigate(client, page.sessionId, params, guard);
+    await runActions(client, page.sessionId, params, guard);
+    guard.throwIfBlocked();
 
     if (params.mode === "content") {
-      stdout(await extractContent(client, sessionId, params));
+      const content = await guard.race(
+        extractContent(client, page.sessionId, params),
+      );
+      guard.throwIfBlocked();
+      stdout(content);
       return;
     }
 
-    const screenshot = await captureScreenshot(client, sessionId, params);
+    const screenshot = await guard.race(
+      captureScreenshot(client, page.sessionId, params),
+    );
+    guard.throwIfBlocked();
     const sent = await maybeSendScreenshot(params, screenshot.output);
     if (sent) {
       const suffix = screenshot.clip.truncated
@@ -1804,9 +2231,18 @@ async function run(): Promise<void> {
   }
 }
 
-run().catch((error: unknown) => {
-  stdout(
-    `执行失败: ${error instanceof Error && error.stack ? error.stack : String(error)}`,
+function isMainModule(): boolean {
+  const entry = process.argv[1];
+  return Boolean(
+    entry && import.meta.url === pathToFileURL(path.resolve(entry)).href,
   );
-  process.exit(1);
-});
+}
+
+if (isMainModule()) {
+  run().catch((error: unknown) => {
+    stdout(
+      `执行失败: ${error instanceof Error && error.stack ? error.stack : String(error)}`,
+    );
+    process.exit(1);
+  });
+}

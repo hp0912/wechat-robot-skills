@@ -7,7 +7,7 @@ description: "网页内容读取、自动化交互和截图工具。当用户提
 
 ## 描述
 
-这是一个本地网页读取、自动化交互和截图技能。它使用基础镜像中的 Chromium 以 headless 模式打开网页，通过 Chrome DevTools Protocol 在本地完成页面渲染、点击、输入、表单操作、正文抽取和截图，不调用外部 AI 接口。
+这是一个网页读取、自动化交互和截图技能。它使用基础镜像中的 Chromium 以 headless 模式打开网页，通过 Chrome DevTools Protocol 完成页面渲染、点击、输入、表单操作、正文抽取和截图，不调用外部 AI 接口。浏览器禁止访问 `file:` 和 `filesystem:` 本地文件地址。
 
 技能脚本位于 `scripts/web_page.ts`，依赖基础镜像提供的 Node.js 24+ 和全局安装的 `tsx`（用于直接运行 TypeScript）以及 Chromium。基础镜像中已配置 `CHROME_BIN=/usr/bin/chromium` 和 `CHROME_PATH=/usr/bin/chromium` 时，无需额外安装浏览器。
 

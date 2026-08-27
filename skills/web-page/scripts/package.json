@@ -2,6 +2,10 @@
   "name": "web-page-skill",
   "private": true,
   "type": "module",
+  "scripts": {
+    "test": "node --experimental-strip-types --test web_page.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
   "devDependencies": {
     "@types/node": "^25.9.1",
     "tsx": "^4.22.4",
