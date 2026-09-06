@@ -6,7 +6,9 @@ import argparse
 import base64
 import gzip
 import json
+import math
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -54,6 +56,8 @@ MIMO_STREAM_AUDIO_FORMAT = "pcm16"
 MIMO_PCM_SAMPLE_RATE = 24000
 MIMO_VOICE_DESIGN_MODEL = "mimo-v2.5-tts-voicedesign"
 MIMO_VOICE_CLONE_MODEL = "mimo-v2.5-tts-voiceclone"
+MIMO_VOICE_CLONE_MAX_BASE64_SIZE = 10_000_000
+MIMO_VOICE_CLONE_MIME_TYPES = {"audio/mpeg", "audio/mp3", "audio/wav"}
 WECHAT_VOICE_MESSAGE_TYPE = 34
 MAX_CONTENT_LENGTH = 260
 STREAM_END_CODE = 20000000
@@ -263,7 +267,8 @@ def _download_referenced_voice_clone(message_id: str) -> str:
     )
     try:
         with urllib.request.urlopen(req, timeout=60) as response:
-            wav_data = response.read()
+            max_audio_size = MIMO_VOICE_CLONE_MAX_BASE64_SIZE // 4 * 3
+            wav_data = response.read(max_audio_size + 1)
     except urllib.error.HTTPError as exc:
         error_body = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"下载引用语音失败，状态码 {exc.code}: {error_body}") from exc
@@ -272,6 +277,8 @@ def _download_referenced_voice_clone(message_id: str) -> str:
 
     if not wav_data:
         raise RuntimeError("下载引用语音失败: 响应为空")
+    if len(wav_data) > max_audio_size:
+        raise RuntimeError("引用语音过大，音色复刻样本的 Base64 不能超过 10 MB")
 
     audio_b64 = base64.b64encode(wav_data).decode("utf-8")
     return f"data:audio/wav;base64,{audio_b64}"
@@ -282,7 +289,14 @@ def _load_referenced_voice_clone(conn) -> str:
     if not ref_message_id:
         return ""
 
-    message = _query_one(conn, "SELECT * FROM messages WHERE msg_id = %s LIMIT 1", (ref_message_id,))
+    try:
+        message_id = int(ref_message_id)
+    except ValueError:
+        return ""
+    if message_id <= 0:
+        return ""
+
+    message = _query_one(conn, "SELECT id, type FROM messages WHERE id = %s LIMIT 1", (message_id,))
     if not message:
         return ""
 
@@ -294,7 +308,7 @@ def _load_referenced_voice_clone(conn) -> str:
     if message_type != WECHAT_VOICE_MESSAGE_TYPE:
         return ""
 
-    return _download_referenced_voice_clone(ref_message_id)
+    return _download_referenced_voice_clone(str(message["id"]))
 
 
 def _parse_cli_params(argv: list[str]) -> dict:
@@ -520,18 +534,34 @@ def _config_texts(config: dict, key: str) -> list[str]:
     return [text] if text else []
 
 
+def _mimo_singing_requested(config: dict, params: dict) -> bool:
+    tags = list(params.get("audio_tags") or _config_texts(config, "audio_tags"))
+    leading_tags = re.match(
+        r"^(?:(?:\([^)]*\)|（[^）]*）|\[[^\]]*\])\s*)+",
+        _clean_text(params.get("content")),
+    )
+    if leading_tags:
+        tags.append(leading_tags.group())
+    return any(re.search(r"唱歌|\bsing(?:ing)?\b", tag, re.IGNORECASE) for tag in tags)
+
+
 def _resolve_mimo_model(config: dict, params: dict) -> str:
-    configured_model = _clean_text(config.get("model"))
+    if _mimo_singing_requested(config, params):
+        if _clean_text(params.get("voice_clone_audio")):
+            raise RuntimeError("MiMo 音色复刻不支持唱歌，请改为朗读，或取消引用语音后使用预置音色唱歌")
+        return DEFAULT_MIMO_MODEL
     if _clean_text(params.get("voice_clone_audio")):
         return MIMO_VOICE_CLONE_MODEL
+    if _clean_text(params.get("voice")):
+        return DEFAULT_MIMO_MODEL
 
     auto_model = _coerce_bool(config.get("auto_model"), True)
+    if auto_model and _clean_text(params.get("voice_prompt")):
+        return MIMO_VOICE_DESIGN_MODEL
     if auto_model and _clean_text(config.get("voice_clone_audio")):
         return MIMO_VOICE_CLONE_MODEL
-    if auto_model and (_clean_text(params.get("voice_prompt")) or _clean_text(config.get("voice_prompt"))):
+    if auto_model and _clean_text(config.get("voice_prompt")):
         return MIMO_VOICE_DESIGN_MODEL
-    if configured_model:
-        return configured_model
     return DEFAULT_MIMO_MODEL
 
 
@@ -542,9 +572,9 @@ def _format_mimo_audio_tags(tags: list[str]) -> str:
     return f"({' '.join(cleaned_tags)})"
 
 
-def _build_mimo_assistant_content(params: dict) -> str:
+def _build_mimo_assistant_content(config: dict, params: dict) -> str:
     content = _clean_text(params.get("content"))
-    tags = _format_mimo_audio_tags(params.get("audio_tags") or [])
+    tags = _format_mimo_audio_tags(params.get("audio_tags") or _config_texts(config, "audio_tags"))
     return f"{tags}{content}" if tags else content
 
 
@@ -580,6 +610,30 @@ def _build_mimo_user_content(config: dict, params: dict, model: str) -> str:
     return "\n".join(parts)
 
 
+def _mimo_voice_clone_data_url(audio: str, mime_type: str) -> str:
+    encoded = audio
+    if audio.lower().startswith("data:"):
+        header, separator, encoded = audio.partition(",")
+        if not separator or not header.lower().endswith(";base64"):
+            raise RuntimeError("音色复刻样本必须使用 data:audio/...;base64,... 格式")
+        mime_type = header[5:-7]
+
+    mime_type = mime_type.strip().lower()
+    if mime_type not in MIMO_VOICE_CLONE_MIME_TYPES:
+        raise RuntimeError("MiMo 音色复刻仅支持 MP3/WAV 样本，MIME 类型须为 audio/mpeg、audio/mp3 或 audio/wav")
+
+    encoded = "".join(encoded.split())
+    if len(encoded) > MIMO_VOICE_CLONE_MAX_BASE64_SIZE:
+        raise RuntimeError("音色复刻样本的 Base64 不能超过 10 MB")
+    try:
+        audio_bytes = base64.b64decode(encoded, validate=True)
+    except ValueError as exc:
+        raise RuntimeError("音色复刻样本不是有效的 Base64 音频数据") from exc
+    if not audio_bytes:
+        raise RuntimeError("音色复刻样本不能为空")
+    return f"data:{mime_type};base64,{encoded}"
+
+
 def _resolve_mimo_voice(config: dict, params: dict, model: str) -> str:
     if model == MIMO_VOICE_DESIGN_MODEL:
         return ""
@@ -588,14 +642,12 @@ def _resolve_mimo_voice(config: dict, params: dict, model: str) -> str:
         voice_clone_audio = _clean_text(params.get("voice_clone_audio")) or _clean_text(config.get("voice_clone_audio"))
         if not voice_clone_audio:
             raise RuntimeError("mimo 音色复刻模型需要引用一条语音消息或配置 voice_clone_audio")
-        if voice_clone_audio.startswith("data:"):
-            return voice_clone_audio
         mime_type = (
             _clean_text(params.get("voice_clone_mime_type"))
             or _clean_text(config.get("voice_clone_mime_type"))
             or "audio/mpeg"
         )
-        return f"data:{mime_type};base64,{voice_clone_audio}"
+        return _mimo_voice_clone_data_url(voice_clone_audio, mime_type)
 
     return _clean_text(params.get("voice")) or _clean_text(config.get("voice")) or DEFAULT_MIMO_VOICE
 
@@ -604,14 +656,14 @@ def _build_mimo_payload(config: dict, params: dict) -> tuple[dict, str, bool]:
     model = _resolve_mimo_model(config, params)
     stream = _coerce_bool(config.get("stream"), False)
     audio_format = MIMO_STREAM_AUDIO_FORMAT if stream else (
-        _clean_text(config.get("audio_format")) or _clean_text(config.get("format")) or DEFAULT_MIMO_AUDIO_FORMAT
+        _clean_text(config.get("audio_format")) or DEFAULT_MIMO_AUDIO_FORMAT
     )
 
     messages = []
     user_content = _build_mimo_user_content(config, params, model)
     if user_content or model == MIMO_VOICE_CLONE_MODEL:
         messages.append({"role": "user", "content": user_content})
-    messages.append({"role": "assistant", "content": _build_mimo_assistant_content(params)})
+    messages.append({"role": "assistant", "content": _build_mimo_assistant_content(config, params)})
 
     audio = {"format": audio_format}
     voice = _resolve_mimo_voice(config, params, model)
@@ -739,6 +791,13 @@ def synthesize_audio_mimo(config: dict, params: dict) -> tuple[bytes, str]:
     if not api_key:
         raise RuntimeError("mimo api_key 不能为空")
 
+    try:
+        timeout = float(config.get("timeout", 300))
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("mimo timeout 必须是大于 0 的秒数") from exc
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise RuntimeError("mimo timeout 必须是大于 0 的秒数")
+
     # 兼容用户把 base_url 配成不带 /v1 的根地址（如 New API / OneAPI 等网关），
     # 避免请求被前端 SPA 兜底返回 index.html。
     parsed_base = urllib.parse.urlsplit(base_url)
@@ -763,7 +822,7 @@ def synthesize_audio_mimo(config: dict, params: dict) -> tuple[bytes, str]:
     )
 
     try:
-        response = urllib.request.urlopen(req, timeout=300)
+        response = urllib.request.urlopen(req, timeout=timeout)
     except urllib.error.HTTPError as exc:
         try:
             error_body = _read_response_text(exc)
@@ -903,7 +962,7 @@ def main() -> int:
             return 1
 
         try:
-            if tts_model == "mimo":
+            if enabled and tts_model == "mimo":
                 voice_clone_audio = _load_referenced_voice_clone(conn)
                 if voice_clone_audio:
                     params = dict(params)

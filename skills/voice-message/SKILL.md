@@ -107,7 +107,7 @@ description: "文本转语音与语音消息发送技能。当用户想让我说
 6. 语速、音高、音量、方言有明确要求时优先填 `speaking_rate`、`pitch`、`volume`、`dialect`；复杂演绎要求放入 `style_prompt`。
 7. `audio_tags` 仅用于用户明确要求唱歌、方言、笑声、停顿、深呼吸等标签化控制时；如果用户已把标签写在 `content` 中，不要重复添加。
 8. `context_texts` 适合表达上下文、场景、人物状态和补充播报要求。
-9. 不要传递音色复刻音频参数。若当前消息引用了一条语音消息，脚本会通过 `ROBOT_REF_MESSAGE_ID` 自动判断并下载引用语音作为复刻样本。
+9. 不要传递音色复刻音频参数。若当前消息引用了一条语音消息，脚本会通过 `ROBOT_REF_MESSAGE_ID`（数据库 `messages.id`）自动判断并下载引用语音作为复刻样本。
 10. `content` 超过 260 个字符时，不应该调用本技能。
 
 ## 音频标签控制
@@ -172,6 +172,8 @@ description: "文本转语音与语音消息发送技能。当用户想让我说
 
 - 只有`mimo-v2.5-tts`模型支持唱歌模式
 
+- 唱歌请求使用预置音色模型；音色设计、音色复刻均不支持唱歌。用户同时要求引用语音克隆和唱歌时，说明该组合不受支持。
+
 - 如需体验更佳的唱歌风格，必须在目标文本最开头添加 `(唱歌)` 标签，格式为：`(唱歌)歌词`。歌词 建议采用中文，可获得更优合成效果。标签内标识支持以下取值，效果等效：`唱歌`、`sing`、`singing`
 
 ## 执行步骤
@@ -190,9 +192,45 @@ python3 scripts/voice_message.py --content '这是一条语音消息' --emotion 
 
 - Doubao：`content` 写入文本字段；支持的 `emotion` 写入音频情绪参数；`voice` 可覆盖 speaker；其他风格控制会合并到 `context_texts` 辅助信息。
 - MiMo V2.5：`content` 写入 `assistant` 消息；`style_prompt`、`voice_prompt`、`context_texts`、`emotion`、`speaking_rate`、`pitch`、`volume`、`dialect` 会合并为 `user` 风格/音色控制；`audio_tags` 会作为整体标签加到要合成的文本前。
-- MiMo 会默认使用非流式 `wav` 输出；配置中 `stream: true` 时使用 `pcm16` 流式兼容模式并在脚本内封装为 `wav`。
-- MiMo 在 `auto_model` 未关闭时，会根据 `voice_prompt` 自动选择 `mimo-v2.5-tts-voicedesign`；如果 `ROBOT_REF_MESSAGE_ID` 指向数据库中 `messages.type = 34` 的语音消息，则脚本会调用客户端接口下载该语音 wav，并自动选择 `mimo-v2.5-tts-voiceclone`。
+- MiMo 默认使用非流式 `wav` 输出；配置中 `stream: true` 时使用 `pcm16` 并在脚本内封装为 24 kHz、单声道 `wav`。普通朗读支持低延迟流式；音色设计、复刻当前在推理完成后以流式格式返回结果。
+- 引用语音消息时，按 `messages.id` 查询引用消息并检查 `type = 34`，下载 wav 后选择 `mimo-v2.5-tts-voiceclone`。例如引用一条语音并要求「用这个声音说：晚上好」。也可在后台配置固定的 `voice_clone_audio` 样本。
+- 上下文明确指定预置 `voice` 时使用普通朗读模型；`auto_model` 开启时，上下文的 `voice_prompt` 选择音色设计模型。这些明确要求优先于配置中的默认复刻样本和音色描述。
 - 引用消息下载接口为 `GET http://127.0.0.1:{ROBOT_WECHAT_CLIENT_PORT}/api/v1/robot/chat/voice/download?message_id={ROBOT_REF_MESSAGE_ID}`，返回 wav 后由脚本封装为 MiMo 需要的 `data:audio/wav;base64,...`。
+
+## MiMo 配置
+
+管理后台文本转语音配置中的 `mimo` 提供以下参数，不需要填写 `model`。模型由脚本根据上下文提取的音色描述、复刻音频等信息自动选择。
+
+```json
+{
+  "base_url": "https://api.xiaomimimo.com/v1",
+  "api_key": "",
+  "voice": "mimo_default",
+  "audio_format": "wav",
+  "stream": false,
+  "timeout": 300,
+  "auto_model": true,
+  "voice_prompt": "",
+  "style_prompt": [],
+  "context_texts": [],
+  "audio_tags": [],
+  "emotion": "",
+  "speaking_rate": "",
+  "pitch": "",
+  "volume": "",
+  "dialect": "",
+  "voice_clone_audio": "",
+  "voice_clone_mime_type": "audio/mpeg"
+}
+```
+
+- `base_url`、`api_key` 用于语音合成请求；留空时沿用聊天接口的对应配置。`timeout` 是请求超时秒数，必须大于 0。
+- `voice`、`voice_prompt`、`emotion`、`speaking_rate`、`pitch`、`volume`、`dialect`、`audio_tags` 是默认语音控制值，上下文明确指定时优先使用上下文参数；`style_prompt` 和 `context_texts` 会与上下文提供的内容合并。
+- `audio_format` 控制非流式输出格式；`stream: true` 时使用 `pcm16` 并封装为 `wav`。PCM 采样率按接口协议处理。
+- `voice_clone_audio` 支持 MP3/WAV 的 Base64 或音频 data URL，Base64 内容不能超过 10 MB。仅填写 Base64 时，使用 `voice_clone_mime_type` 指定类型：`audio/mpeg`、`audio/mp3` 或 `audio/wav`。引用语音优先于配置样本，格式错误、数据为空或超限时会在调用 MiMo 前报错。
+- `auto_model` 默认开启，优先使用上下文的音色要求，再按配置样本、配置音色描述、普通朗读的顺序选择；关闭时使用普通朗读模型。引用语音始终选择音色复刻；唱歌使用普通朗读模型，与引用语音克隆冲突时会明确报错。
+
+协议依据：[小米 MiMo V2.5 语音合成官方文档](https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/audio/speech-synthesis-v2.5)。
 
 ## 依赖安装
 
