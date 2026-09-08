@@ -15,6 +15,7 @@ from _document_builder import (
     apply_header_footer,
     apply_named_styles,
     apply_page_settings,
+    apply_section_overrides,
     expect_list,
     set_update_fields,
 )
@@ -35,6 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output", required=True)
     parser.add_argument("--spec", help="内联 JSON 文档说明")
     parser.add_argument("--spec-file", help="JSON 文档说明文件")
+    parser.add_argument("--preset", choices=["patent"], help="将专利内容转换为标准文档说明")
     parser.add_argument("--overwrite", action="store_true")
     return parser
 
@@ -49,6 +51,10 @@ def main() -> dict[str, Any]:
         overwrite=args.overwrite,
     )
     spec = load_json_argument(args.spec, args.spec_file, label="文档说明")
+    if args.preset == "patent":
+        from _patent_spec import build_patent_spec
+
+        spec = build_patent_spec(spec)
     allowed = {
         "properties",
         "page",
@@ -57,6 +63,7 @@ def main() -> dict[str, Any]:
         "header",
         "footer",
         "blocks",
+        "sections",
     }
     unknown = set(spec) - allowed
     if unknown:
@@ -78,6 +85,7 @@ def main() -> dict[str, Any]:
         spec.get("header"),
         spec.get("footer"),
     )
+    apply_section_overrides(document, spec.get("sections", []))
     set_update_fields(document)
 
     descriptor, temp_name = tempfile.mkstemp(

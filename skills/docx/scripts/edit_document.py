@@ -122,6 +122,7 @@ def _replace_in_paragraph(
     match_case: bool,
     whole_word: bool,
     remaining: int,
+    tracker: Any = None,
 ) -> int:
     runs = paragraph.runs
     if not runs:
@@ -138,6 +139,9 @@ def _replace_in_paragraph(
         found = found[:remaining]
     if not found:
         return 0
+    if tracker is not None:
+        tracker.replace(paragraph, found, replacement)
+        return len(found)
 
     spans: list[tuple[int, int]] = []
     offset = 0
@@ -176,7 +180,7 @@ def _replace_in_paragraph(
     return len(found)
 
 
-def _op_replace_text(document: Any, op: dict[str, Any]) -> dict[str, Any]:
+def _op_replace_text(document: Any, op: dict[str, Any], tracker: Any = None) -> dict[str, Any]:
     find = str(op.get("find", ""))
     if not find:
         raise ValueError("replace_text.find 不能为空")
@@ -199,6 +203,7 @@ def _op_replace_text(document: Any, op: dict[str, Any]) -> dict[str, Any]:
             match_case=bool(op.get("match_case", True)),
             whole_word=bool(op.get("whole_word", False)),
             remaining=remaining,
+            tracker=tracker,
         )
         if count:
             total += count
@@ -373,6 +378,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--spec", help="内联 JSON 编辑说明")
     parser.add_argument("--spec-file", help="JSON 编辑说明文件")
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--track-changes", action="store_true", help="将 replace_text 操作记录为修订")
+    parser.add_argument("--author", default="assistant", help="新修订的作者")
     parser.add_argument(
         "--allow-existing-revisions",
         action="store_true",
@@ -404,6 +411,10 @@ def main() -> dict[str, Any]:
         raise ValueError(f"operations 不能超过 {MAX_OPERATIONS} 项")
 
     has_revisions = _has_revisions(source)
+    if args.track_changes and has_revisions:
+        raise ValueError("修订替换需要无现有修订的副本；请先根据用户要求处理原有修订")
+    if args.track_changes and any(expect_object(op, "operations[]").get("type") != "replace_text" for op in operations):
+        raise ValueError("--track-changes 仅支持 replace_text；其他操作不能伪装为修订")
     if has_revisions and not args.allow_existing_revisions:
         raise ValueError(
             "输入文档含修订记录。为避免把未接受修订静默改坏，"
@@ -412,10 +423,16 @@ def main() -> dict[str, Any]:
         )
 
     document = Document(str(source))
+    tracker = None
+    if args.track_changes:
+        from _tracked_replace import TrackedReplacement
+
+        tracker = TrackedReplacement(source, args.author)
     results: list[dict[str, Any]] = []
     for index, operation in enumerate(operations):
         try:
-            results.append(_apply_operation(document, operation))
+            results.append(_op_replace_text(document, operation, tracker) if tracker is not None
+                           else _apply_operation(document, operation))
         except Exception as exc:
             raise ValueError(f"第 {index + 1} 个操作失败：{exc}") from exc
     set_update_fields(document)
@@ -450,6 +467,7 @@ def main() -> dict[str, Any]:
         "table_count": len(document.tables),
         "section_count": len(document.sections),
         "source_had_revisions": has_revisions,
+        "tracked_replacement_count": tracker.count if tracker is not None else 0,
         "archive": archive,
         "requires_visual_review": True,
     }

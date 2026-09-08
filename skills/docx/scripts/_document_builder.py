@@ -720,10 +720,13 @@ def _clear_container(container: Any) -> None:
         container._element.remove(table._element)
 
 
-def apply_header_footer(document: Any, raw_header: Any, raw_footer: Any) -> None:
-    for section in document.sections:
+def apply_header_footer(
+    document: Any, raw_header: Any, raw_footer: Any, *, sections: Optional[list[Any]] = None
+) -> None:
+    for section in document.sections if sections is None else sections:
         if raw_header is not None:
             spec = expect_object(raw_header, "header")
+            section.header.is_linked_to_previous = False
             _clear_container(section.header)
             if "blocks" in spec:
                 add_blocks(document, section.header, spec["blocks"])
@@ -737,6 +740,7 @@ def apply_header_footer(document: Any, raw_header: Any, raw_footer: Any) -> None
                 apply_paragraph_format(paragraph, spec)
         if raw_footer is not None:
             spec = expect_object(raw_footer, "footer")
+            section.footer.is_linked_to_previous = False
             _clear_container(section.footer)
             if "blocks" in spec:
                 add_blocks(document, section.footer, spec["blocks"])
@@ -754,6 +758,36 @@ def apply_header_footer(document: Any, raw_header: Any, raw_footer: Any) -> None
                         prefix=str(spec.get("page_number_prefix", "")),
                         suffix=str(spec.get("page_number_suffix", "")),
                     )
+
+
+def apply_section_overrides(document: Any, raw_sections: Any) -> None:
+    from docx.oxml import OxmlElement
+
+    seen: set[int] = set()
+    for raw in expect_list(raw_sections, "sections"):
+        spec = expect_object(raw, "sections[]")
+        unknown = set(spec) - {"index", "header", "footer", "page_number_start"}
+        if unknown:
+            raise ValueError(f"sections[] 包含未知字段：{sorted(unknown)}")
+        index = int(spec["index"])
+        if index < 0 or index >= len(document.sections) or index in seen:
+            raise ValueError("sections[].index 必须是存在且不重复的分节索引")
+        seen.add(index)
+        section = document.sections[index]
+        apply_header_footer(document, spec.get("header"), spec.get("footer"), sections=[section])
+        if "page_number_start" in spec:
+            start = int(spec["page_number_start"])
+            if start < 1 or start > 32767:
+                raise ValueError("page_number_start 必须在 1 到 32767 之间")
+            page_number = section._sectPr.find(qn("pgNumType"))
+            if page_number is None:
+                page_number = OxmlElement("w:pgNumType")
+                section._sectPr.insert_element_before(
+                    page_number, "w:cols", "w:formProt", "w:vAlign", "w:noEndnote",
+                    "w:titlePg", "w:textDirection", "w:bidi", "w:rtlGutter", "w:docGrid",
+                    "w:printerSettings", "w:sectPrChange",
+                )
+            page_number.set(qn("start"), str(start))
 
 
 def set_update_fields(document: Any) -> None:
