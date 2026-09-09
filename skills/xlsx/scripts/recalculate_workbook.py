@@ -37,9 +37,7 @@ def _scan_formula_results(path: Path) -> dict[str, Any]:
     for formula_sheet in formulas.worksheets:
         cached_sheet = cached[formula_sheet.title]
         for cell in formula_sheet._cells.values():
-            is_formula = cell.data_type == "f" or (
-                isinstance(cell.value, str) and cell.value.startswith("=")
-            )
+            is_formula = cell.data_type == "f"
             if not is_formula:
                 continue
             total_formulas += 1

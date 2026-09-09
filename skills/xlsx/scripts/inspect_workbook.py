@@ -40,9 +40,7 @@ def _cell_payload(formula_cell: Any, cached_cell: Any) -> Optional[dict[str, Any
     if formula_value is None and cached_value is None and not formula_cell.has_style:
         return None
 
-    is_formula = formula_cell.data_type == "f" or (
-        isinstance(formula_value, str) and formula_value.startswith("=")
-    )
+    is_formula = formula_cell.data_type == "f"
     value = cached_value if is_formula else formula_value
     error = normalize_formula_error(value)
     payload: dict[str, Any] = {
@@ -120,9 +118,7 @@ def inspect_excel(
         formula_count = 0
         error_count = 0
         for cell in worksheet._cells.values():
-            if cell.data_type == "f" or (
-                isinstance(cell.value, str) and cell.value.startswith("=")
-            ):
+            if cell.data_type == "f":
                 formula_count += 1
             if normalize_formula_error(cell.value):
                 error_count += 1

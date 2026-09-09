@@ -241,7 +241,11 @@ def _set_cell(cell: Any, item: dict[str, Any]) -> None:
             raise ValueError(f"{cell.coordinate} 的 formula 必须以 = 开头")
         cell.value = formula
     elif "value" in item:
+        if isinstance(item["value"], str) and len(item["value"]) > 32767:
+            raise ValueError(f"{cell.coordinate} 的文本超过 Excel 单元格上限，不能静默截断")
         cell.value = item["value"]
+        if isinstance(item["value"], str):
+            cell.data_type = "s"
     if "style" in item:
         _apply_style(cell, item["style"])
     if "comment" in item:
@@ -362,6 +366,8 @@ def _op_write_rows(workbook: Any, op: dict[str, Any]) -> int:
             ):
                 _set_cell(cell, raw_value)
             else:
+                if isinstance(raw_value, str) and len(raw_value) > 32767:
+                    raise ValueError(f"{cell.coordinate} 的文本超过 Excel 单元格上限，不能静默截断")
                 cell.value = raw_value
     if "style" in op:
         style = op["style"]
@@ -492,6 +498,48 @@ def _op_set_row_heights(workbook: Any, op: dict[str, Any]) -> int:
             worksheet.row_dimensions[row].height = height
             changed += 1
     return changed
+
+
+def _op_auto_fit(workbook: Any, op: dict[str, Any]) -> int:
+    import math
+    import unicodedata
+    from openpyxl.utils.cell import get_column_letter, range_boundaries
+
+    worksheet = _sheet(workbook, op.get("sheet"))
+    reference = validate_cell_range(str(op.get("range", "")))
+    cells = list(_iter_range_cells(worksheet, reference))
+    min_col, min_row, max_col, max_row = range_boundaries(reference)
+    minimum, maximum = float(op.get("min_width", 8)), float(op.get("max_width", 40))
+    if not 1 <= minimum <= maximum <= 100:
+        raise ValueError("auto_fit 列宽需满足 1 <= min_width <= max_width <= 100")
+
+    def lines(cell: Any) -> list[float]:
+        if cell.data_type == "f":
+            return [12.]
+        text = "" if cell.value is None else str(cell.value)
+        scale = (cell.font.sz or 11) / 11
+        return [sum(2 if unicodedata.east_asian_width(ch) in "WF" else 1 for ch in line) * scale for line in text.split("\n")]
+
+    for column in range(min_col, max_col + 1):
+        length = max((max(lines(worksheet.cell(row, column))) for row in range(min_row, max_row + 1)), default=0)
+        width = min(maximum, max(minimum, length + 3))
+        worksheet.column_dimensions[get_column_letter(column)].width = width
+        for row in range(min_row, max_row + 1):
+            cell = worksheet.cell(row, column)
+            if cell.value is not None and (max(lines(cell)) + 3 > width or "\n" in str(cell.value)):
+                alignment = copy(cell.alignment)
+                alignment.wrap_text = True
+                cell.alignment = alignment
+    for row in range(min_row, max_row + 1):
+        height = 30 if row == min_row else 20
+        for column in range(min_col, max_col + 1):
+            cell = worksheet.cell(row, column)
+            if cell.alignment.wrap_text:
+                width = max(1., worksheet.column_dimensions[get_column_letter(column)].width - 3)
+                count = sum(max(1, math.ceil(length / width)) for length in lines(cell))
+                height = max(height, math.ceil(count * ((cell.font.sz or 11) + 4) * 1.25) + 8)
+        worksheet.row_dimensions[row].height = min(409., height)
+    return len(cells)
 
 
 def _op_add_table(workbook: Any, op: dict[str, Any]) -> int:
@@ -797,6 +845,7 @@ def _apply_operation(workbook: Any, raw_op: Any) -> int:
         "clear_range": _op_clear_range,
         "set_column_widths": _op_set_column_widths,
         "set_row_heights": _op_set_row_heights,
+        "auto_fit": _op_auto_fit,
         "add_table": _op_add_table,
         "add_chart": _op_add_chart,
         "add_image": _op_add_image,
@@ -837,9 +886,7 @@ def _scan_workbook(workbook: Any) -> dict[str, Any]:
     for worksheet in workbook.worksheets:
         for cell in worksheet._cells.values():
             value = cell.value
-            if cell.data_type == "f" or (
-                isinstance(value, str) and value.startswith("=")
-            ):
+            if cell.data_type == "f":
                 formula_count += 1
                 if (
                     isinstance(value, str)
