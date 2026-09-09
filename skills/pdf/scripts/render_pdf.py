@@ -12,6 +12,7 @@ from typing import Any
 
 from _pdf_common import (
     SkillArgumentParser,
+    check_poppler_resources,
     input_pdf,
     output_directory,
     publish_temp_file,
@@ -155,6 +156,7 @@ def _render(args) -> dict[str, Any]:
         if completed.returncode != 0:
             detail = (completed.stderr or completed.stdout or "").strip()[-2000:]
             raise RuntimeError(f"PDF 渲染失败：{detail or 'pdftoppm 返回错误'}")
+        check_poppler_resources(completed.stderr)
 
         rendered = sorted(
             temp_dir.glob("page-*.png"),

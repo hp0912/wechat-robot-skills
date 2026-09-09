@@ -6,6 +6,7 @@ import contextlib
 import importlib.metadata
 import io
 import logging
+import math
 import os
 import re
 import shutil
@@ -18,6 +19,7 @@ from typing import Any
 
 from _pdf_common import (
     SkillArgumentParser,
+    check_poppler_resources,
     input_pdf,
     parse_page_spec,
     run_cli,
@@ -178,6 +180,7 @@ def _render_page(
             f"第 {page_number} 页渲染失败："
             f"{detail or 'pdftoppm 返回错误'}"
         )
+    check_poppler_resources(completed.stderr)
     if not output.is_file() or output.stat().st_size <= 0:
         raise RuntimeError(f"第 {page_number} 页没有生成有效 PNG")
     return output, elapsed
@@ -185,17 +188,29 @@ def _render_page(
 
 def _create_ocr_engine():
     try:
+        import rapidocr
         from rapidocr import RapidOCR
     except ImportError as exc:
         raise RuntimeError("环境预置的 rapidocr 模块不可用") from exc
 
+    model_dir = Path(rapidocr.__file__).resolve().parent / "models"
+    models = {"Det": "PP-OCRv6_det_small.onnx", "Cls": "ch_ppocr_mobile_v2.0_cls_mobile.onnx", "Rec": "PP-OCRv6_rec_small.onnx"}
+    missing = [filename for filename in models.values() if not (model_dir / filename).is_file()]
+    if missing:
+        raise RuntimeError(f"基础镜像缺少本地 OCR 模型：{missing}；任务中不能下载")
+    params = {
+        "Global.log_level": "error",
+        # Keep uncertain lines for explicit review instead of silently dropping them.
+        "Global.text_score": 0.0,
+        **{f"{name}.model_path": str(model_dir / filename) for name, filename in models.items()},
+    }
     captured_stdout = io.StringIO()
     captured_stderr = io.StringIO()
     with (
         contextlib.redirect_stdout(captured_stdout),
         contextlib.redirect_stderr(captured_stderr),
     ):
-        return RapidOCR()
+        return RapidOCR(params=params)
 
 
 def _clean_text(value: Any) -> str:
@@ -235,7 +250,7 @@ def _ordered_lines(result: Any) -> list[dict[str, Any]]:
             confidence = float(scores[index])
         except (IndexError, TypeError, ValueError):
             confidence = 0.0
-        confidence = max(0.0, min(1.0, confidence))
+        confidence = max(0.0, min(1.0, confidence)) if math.isfinite(confidence) else 0.0
         box = _box_points(boxes[index] if index < len(boxes) else None)
         if box:
             left = min(point[0] for point in box)
@@ -314,8 +329,17 @@ def _ocr_page(engine: Any, image_path: Path) -> dict[str, Any]:
     else:
         status = "good"
 
+    reliable_lines = [line for line in lines if line["confidence"] >= MIN_MEAN_CONFIDENCE]
+    review_lines = [line for line in lines if line["confidence"] < MIN_MEAN_CONFIDENCE]
+    # A high page average must not certify a low-confidence amount or identifier.
+    reliable_text = "\n".join(line["text"] for line in reliable_lines)
     return {
-        "text": text,
+        "text": reliable_text if status == "good" else "",
+        "raw_char_count": len(text),
+        "needs_review": status != "good" or bool(review_lines),
+        "review_regions": [{"text_candidate": line["text"][:500], "confidence": round(line["confidence"], 4), "box": line["box"]} for line in review_lines[:40]],
+        "review_regions_truncated": len(review_lines) > 40,
+        "reading_order": "geometric_top_to_bottom",
         "status": status,
         "usable_for_summary": status == "good",
         "line_count": len(lines),
@@ -436,9 +460,10 @@ def _extract(args) -> dict[str, Any]:
         ),
         "complete_ocr_coverage": (
             all_processed and all_complete and all_usable
+            and not any(page["needs_review"] for page in page_outputs)
         ),
         "needs_review": any(
-            not page["usable_for_summary"] for page in page_outputs
+            page["needs_review"] for page in page_outputs
         ),
         "has_more": has_more,
         "next_page": next_page,

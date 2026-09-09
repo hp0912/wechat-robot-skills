@@ -23,6 +23,15 @@ def quiet_pdf_library_logs() -> None:
 quiet_pdf_library_logs()
 
 
+def check_poppler_resources(stderr: str) -> None:
+    """A zero exit code can still leave every CJK glyph invisible."""
+    if "Missing language pack" in stderr:
+        raise RuntimeError(
+            "Poppler 缺少中文/CJK 编码映射；基础镜像需安装 poppler-data。"
+            "预览可能缺字，不能据此执行 OCR 或判断原文为空白。"
+        )
+
+
 class SkillArgumentParser(argparse.ArgumentParser):
     def error(self, message: str) -> NoReturn:
         raise ValueError(f"参数错误：{message}")
