@@ -268,8 +268,9 @@ def _visual_structure(path: Path) -> tuple[list[dict[str, Any]], list[dict[str, 
     errors: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
     presentation = Presentation(str(path))
-    slide_width = int(presentation.slide_width)
-    slide_height = int(presentation.slide_height)
+    slide_width, slide_height = presentation.slide_width, presentation.slide_height
+    if slide_width is None or slide_height is None:
+        raise ValueError("演示文稿缺少页面尺寸")
     tolerance = 2000
     for slide_number, slide in enumerate(presentation.slides, start=1):
         if len(slide.shapes) == 0:

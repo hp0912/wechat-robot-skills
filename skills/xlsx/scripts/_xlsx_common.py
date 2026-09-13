@@ -202,6 +202,16 @@ def validate_cell_range(value: str, *, label: str = "区域") -> str:
     return normalized
 
 
+def cell_range_bounds(value: str) -> tuple[int, int, int, int]:
+    from openpyxl.utils.cell import range_boundaries
+
+    bounds = range_boundaries(validate_cell_range(value))
+    min_col, min_row, max_col, max_row = bounds
+    if min_col is None or min_row is None or max_col is None or max_row is None:
+        raise ValueError(f"区域必须包含完整的行列边界：{value}")
+    return min_col, min_row, max_col, max_row
+
+
 def find_program(*names: str) -> str:
     for name in names:
         resolved = shutil.which(name)

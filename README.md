@@ -2,6 +2,20 @@
 
 微信机器人 Skills
 
+**开发检查**
+
+使用 Python 3.12 和 Node.js 24+，在仓库根目录运行：
+
+```sh
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-dev.txt
+npm install
+npm run check
+```
+
+检查覆盖所有 Python、JavaScript、TypeScript 脚本及测试，包含 Ruff、Pyright、TypeScript 和 ESLint；类型错误、未使用代码及检查警告会导致命令失败。VS Code / Pylance 请选择 `.venv/bin/python` 作为解释器，以使用相同的依赖和类型信息。
+
 **系统自动注入的环境变量**
 
 - ROBOT_WECHAT_CLIENT_PORT: 机器人客户端服务端口，可用于在 SKILL 脚本直接调用客户端接口 `http://127.0.0.1:{ROBOT_WECHAT_CLIENT_PORT}/api/v1/xxxxx`

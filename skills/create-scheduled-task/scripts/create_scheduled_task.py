@@ -18,7 +18,7 @@ from typing import Any, Literal, NoReturn, TypedDict
 try:
     from zoneinfo import ZoneInfo
 except ImportError:  # pragma: no cover - Python 3.8 fallback
-    ZoneInfo = None  # type: ignore[assignment,misc]
+    ZoneInfo = None
 
 sys.stderr = sys.stdout
 

@@ -505,6 +505,8 @@ def _walk_content_images(
         elif operator == b"Do" and operands:
             try:
                 xobject = _resolve(xobjects.get(operands[0]))
+                if xobject is None:
+                    continue
                 subtype = str(xobject.get("/Subtype"))
             except Exception:
                 continue

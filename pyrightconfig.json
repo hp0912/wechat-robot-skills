@@ -1,0 +1,16 @@
+{
+  "include": ["skills", "tests"],
+  "exclude": ["**/.venv", "**/node_modules", "**/__pycache__"],
+  "typeCheckingMode": "standard",
+  "pythonVersion": "3.12",
+  "executionEnvironments": [
+    {"root": "skills/docx", "extraPaths": ["skills/docx/scripts"]},
+    {"root": "skills/pdf", "extraPaths": ["skills/pdf/scripts"]},
+    {"root": "skills/pptx", "extraPaths": ["skills/pptx/scripts"]},
+    {"root": "skills/xlsx", "extraPaths": ["skills/xlsx/scripts"]},
+    {"root": "."}
+  ],
+  "reportUnusedImport": "warning",
+  "reportUnusedVariable": "warning",
+  "reportUnnecessaryTypeIgnoreComment": "warning"
+}

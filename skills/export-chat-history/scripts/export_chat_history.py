@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import re
@@ -20,7 +21,7 @@ from typing import Any, NoReturn
 try:
     from zoneinfo import ZoneInfo
 except ImportError:  # pragma: no cover - Python 3.8 fallback
-    ZoneInfo = None  # type: ignore[assignment,misc]
+    ZoneInfo = None
 
 sys.stderr = sys.stdout
 
@@ -94,8 +95,8 @@ def _run_bootstrap() -> None:
 
 def _ensure_runtime_dependencies() -> None:
     try:
-        import openpyxl  # noqa: F401
-        import pymysql  # noqa: F401
+        importlib.import_module("openpyxl")
+        importlib.import_module("pymysql")
 
         return
     except ModuleNotFoundError:
@@ -109,8 +110,8 @@ def _ensure_runtime_dependencies() -> None:
     venv_dir = (_skill_root() / ".venv").resolve()
     if Path(sys.prefix).resolve() == venv_dir:
         try:
-            import openpyxl  # noqa: F401
-            import pymysql  # noqa: F401
+            importlib.import_module("openpyxl")
+            importlib.import_module("pymysql")
 
             return
         except ModuleNotFoundError as exc:

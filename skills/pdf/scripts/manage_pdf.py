@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 import sys
 from contextlib import ExitStack
-from pathlib import Path
 from typing import Any
 
 from _pdf_common import (

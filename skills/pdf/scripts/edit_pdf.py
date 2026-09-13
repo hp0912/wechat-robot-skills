@@ -126,7 +126,7 @@ def execute(args):
             if args.offset < 0 or not 1 <= args.limit <= 200:
                 raise ValueError('offset 不能小于 0，limit 需为 1–200')
             stop = min(len(fields), args.offset + args.limit)
-            acroform = reader.trailer['/Root'].get('/AcroForm')
+            acroform = reader.root_object.get('/AcroForm')
             return {'field_count':len(fields), 'fields':fields[args.offset:stop], 'has_more':stop < len(fields),
                     'next_offset':stop if stop < len(fields) else None,
                     'has_xfa':bool(acroform and '/XFA' in acroform.get_object())}
@@ -138,9 +138,10 @@ def execute(args):
         writer = PdfWriter(clone_from=reader)
         temporary = new_temp_pdf(output)
         extra = {}
+        values = {}
         try:
             if args.operation == 'form-fill':
-                acroform = reader.trailer['/Root'].get('/AcroForm')
+                acroform = reader.root_object.get('/AcroForm')
                 if acroform and '/XFA' in acroform.get_object():
                     raise ValueError('XFA 表单不属于 AcroForm 固定接口，不能声称填写成功')
                 values = validated_values(field_info(reader), load_data(args.data, args.data_file))
@@ -152,7 +153,7 @@ def execute(args):
                 if set(data) - allowed or not all(isinstance(v,str) and len(v) <= 4096 for v in data.values()):
                     raise ValueError('元数据仅支持 Title/Author/Subject/Keywords/Creator/Producer 文本字段')
                 writer.add_metadata({'/'+key:value for key,value in data.items()})
-                extra = {'updated_keys':list(data), 'xmp_preserved':'/Metadata' in reader.trailer['/Root']}
+                extra = {'updated_keys':list(data), 'xmp_preserved':'/Metadata' in reader.root_object}
             elif args.operation == 'crop':
                 box = [float(v) for v in args.box.split(',')]
                 if len(box) != 4 or not all(math.isfinite(v) for v in box) or box[0] >= box[2] or box[1] >= box[3]:
@@ -162,7 +163,7 @@ def execute(args):
                     media = writer.pages[number-1].mediabox
                     if box[0] < media.left or box[1] < media.bottom or box[2] > media.right or box[3] > media.top:
                         raise ValueError(f'裁剪框超出第 {number} 页 MediaBox')
-                    writer.pages[number-1].cropbox = RectangleObject(box)
+                    writer.pages[number-1].cropbox = RectangleObject((box[0], box[1], box[2], box[3]))
                 extra = {'cropped_pages':pages, 'box':box, 'warning':'裁剪只改变可见范围，不删除隐藏内容，不能用于脱敏。'}
             with temporary.open('wb') as stream:
                 writer.write(stream)

@@ -66,7 +66,7 @@ def _ensure_skill_venv_python() -> None:
 def _mysql_connect():
     _ensure_skill_venv_python()
     try:
-        import pymysql  # type: ignore
+        import pymysql
     except ModuleNotFoundError:
         _run_bootstrap()
         venv_python = _skill_venv_python()

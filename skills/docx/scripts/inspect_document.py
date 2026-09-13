@@ -9,7 +9,6 @@ from typing import Any, Optional
 
 from _docx_common import (
     DOCX_INPUT_SUFFIXES,
-    NS,
     SkillArgumentParser,
     W_NS,
     input_file,

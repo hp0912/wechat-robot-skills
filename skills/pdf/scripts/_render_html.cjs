@@ -60,7 +60,7 @@ async function render(request) {
         if (!within(root, target) || !MIME[path.extname(target).toLowerCase()]) throw new Error('forbidden asset');
         if (fs.statSync(target).size > 25 * 1024 * 1024) throw new Error('asset too large');
         return route.fulfill({body:fs.readFileSync(target), contentType:MIME[path.extname(target).toLowerCase()], headers:{'Content-Security-Policy':policy}});
-      } catch (_) { blocked.push('缺失或不允许的本地资源：' + relative.slice(0, 200)); return route.abort(); }
+      } catch { blocked.push('缺失或不允许的本地资源：' + relative.slice(0, 200)); return route.abort(); }
     });
     await page.goto('https://pdf.local/' + encodeURIComponent(path.basename(request.input)), {waitUntil:'load'});
     if (await page.evaluate(() => document.compatMode !== 'CSS1Compat'))
@@ -84,9 +84,9 @@ async function render(request) {
       if (unsafe) throw new Error('Mermaid 不允许内嵌配置；主题和安全选项由固定渲染器设置');
       await inject(page, path.join(libraries.mermaid,'dist/mermaid.min.js'));
       await page.evaluate(async () => {
-        mermaid.initialize({startOnLoad:false, securityLevel:'strict', theme:'neutral', maxTextSize:50000,
+        window.mermaid.initialize({startOnLoad:false, securityLevel:'strict', theme:'neutral', maxTextSize:50000,
           flowchart:{htmlLabels:false}, suppressErrorRendering:true});
-        await mermaid.run({querySelector:'.mermaid'});
+        await window.mermaid.run({querySelector:'.mermaid'});
       });
     }
     if (stats.math) {
@@ -94,7 +94,7 @@ async function render(request) {
       await inject(page, path.join(libraries.katex,'dist/katex.min.js'));
       await page.evaluate(() => {
         for (const el of document.querySelectorAll('.math-inline,.math-display')) {
-          katex.render(el.textContent, el, {displayMode:el.classList.contains('math-display'), throwOnError:true,
+          window.katex.render(el.textContent, el, {displayMode:el.classList.contains('math-display'), throwOnError:true,
             trust:false, maxExpand:1000, maxSize:30, strict:'warn'});
         }
       });

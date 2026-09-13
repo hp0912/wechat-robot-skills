@@ -198,7 +198,7 @@ def main() -> dict[str, Any]:
     os.close(descriptor)
     temp_path = Path(temp_name)
     try:
-        document.save(temp_path)
+        document.save(str(temp_path))
         archive = inspect_archive(temp_path)
         Document(str(temp_path))
         publish_file(temp_path, destination, overwrite=args.overwrite)

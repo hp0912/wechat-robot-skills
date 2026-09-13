@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import math
-from typing import Any
 
 import numpy as np
 import pandas as pd
 
 from _xlsx_common import SkillArgumentParser, load_json_argument, run_cli
-from _xlsx_data import SOURCE_ROW, numeric, read_dataset, require_columns, save_plan, scalar
+from _xlsx_data import SOURCE_ROW, numeric, read_dataset, require_columns, save_plan
 
 
 def evaluate(frame: pd.DataFrame, spec: dict) -> tuple[list, dict]:
@@ -61,8 +60,8 @@ def evaluate(frame: pd.DataFrame, spec: dict) -> tuple[list, dict]:
         if not np.allclose(np.diag(matrix), 1) or not np.allclose(matrix * matrix.T, 1, atol=1e-6):
             raise ValueError("AHP 比较矩阵必须对角为 1 且互反")
         values, vectors = np.linalg.eig(matrix)
-        index = np.argmax(values.real)
-        weights = np.abs(vectors[:, index].real)
+        index = np.argmax(np.real(values))
+        weights = np.abs(np.real(vectors[:, index]))
         ri = [0, 0, 0, .58, .90, 1.12, 1.24, 1.32, 1.41, 1.45][n]
         consistency = max(0, float(values[index].real - n) / (n - 1) / ri) if ri else 0
         if consistency >= .1:
@@ -229,7 +228,7 @@ def supervised(frame: pd.DataFrame, spec: dict, *, classification: bool) -> tupl
             metrics += [[label, algorithm, key, float(value)] for key, value in stats.items()]
     predictions = frame.iloc[test][[SOURCE_ROW, *features]].copy()
     predictions["实际值"] = y.iloc[test].to_numpy()
-    predictions["预测值"] = pipeline.predict(X.iloc[test])
+    predictions["预测值"] = np.asarray(pipeline.predict(X.iloc[test]))
     model = pipeline.named_steps["model"]
     names = pipeline.named_steps["prepare"].get_feature_names_out()
     importance = model.feature_importances_ if hasattr(model, "feature_importances_") else np.mean(np.abs(np.atleast_2d(model.coef_)), axis=0)
@@ -246,7 +245,7 @@ def supervised(frame: pd.DataFrame, spec: dict, *, classification: bool) -> tupl
             future_X[col] = future_X[col].map(lambda x: str(x) if pd.notna(x) else np.nan)
         pipeline.fit(X, y)
         future = future[[SOURCE_ROW, *features]].copy()
-        future["预测值"] = pipeline.predict(future_X)
+        future["预测值"] = np.asarray(pipeline.predict(future_X))
         tables.append(("新样本预测", future))
     else:
         provenance = None
@@ -282,7 +281,7 @@ def unsupervised(frame: pd.DataFrame, spec: dict, *, anomaly: bool) -> tuple[lis
     labels = model.fit_predict(scaled)
     result = frame.copy()
     result["异常标记" if anomaly else "簇编号"] = labels
-    if anomaly:
+    if isinstance(model, IsolationForest):
         result["正常程度得分"] = model.decision_function(scaled)
     score = None
     valid = labels != -1
@@ -339,12 +338,14 @@ def optimize(spec: dict) -> tuple[list, dict]:
         start = np.asarray(spec.get("initial", np.clip(np.zeros(n), lower, upper)), dtype=float)
         if start.shape != (n,) or not np.isfinite(start).all():
             raise ValueError("initial 需为有限数值向量")
-        objective = lambda x: float(c @ x + .5 * x @ Q @ x)
+        def objective(x):
+            return float(c @ x + .5 * x @ Q @ x)
         result = minimize(lambda x: sign * objective(x), start, jac=lambda x: sign * (c + Q @ x), method="SLSQP",
                           bounds=Bounds(lower, upper), constraints=[linear] if linear else [], options={"maxiter": 1000, "ftol": 1e-9})
         guarantee = "凸二次规划的数值解，已检查可行性"
     else:
-        objective = lambda x: float(c @ x)
+        def objective(x):
+            return float(c @ x)
         result = milp(sign * c, integrality=np.asarray(integer, dtype=int), bounds=Bounds(lower, upper),
                       constraints=linear, options={"time_limit": 60., "mip_rel_gap": 0.})
         guarantee = "HiGHS 求解成功；仅在成功且可行时输出方案"

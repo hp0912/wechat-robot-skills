@@ -8,7 +8,7 @@ import os
 import tempfile
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 
 from _xlsx_common import (
     TABULAR_INPUT_SUFFIXES,
@@ -81,6 +81,8 @@ def _delimited_to_xlsx(
     )
     workbook = Workbook()
     worksheet = workbook.active
+    if worksheet is None:
+        raise ValueError("工作簿没有活动工作表")
     worksheet.title = sheet_name[:31] or "Sheet1"
     for row in rows:
         worksheet.append(row)
@@ -133,6 +135,8 @@ def _xlsx_to_delimited(
         worksheet = workbook[sheet_name]
     else:
         worksheet = workbook.active
+    if worksheet is None:
+        raise ValueError("工作簿没有活动工作表")
     row_count = 0
     with destination.open("w", encoding=encoding, newline="") as handle:
         writer = csv.writer(handle, delimiter=delimiter)

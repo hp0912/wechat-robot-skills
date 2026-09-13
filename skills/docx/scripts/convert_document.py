@@ -13,7 +13,6 @@ from _docx_common import (
     DOCUMENT_OUTPUT_SUFFIXES,
     WORD_INPUT_SUFFIXES,
     SkillArgumentParser,
-    find_program,
     input_file,
     output_file,
     publish_file,
@@ -74,7 +73,7 @@ def _extract_text(
     pandoc = shutil.which("pandoc")
     if pandoc:
         target = "gfm" if markdown else "plain"
-        completed = run_program(
+        run_program(
             [
                 pandoc,
                 f"--track-changes={track_changes}",

@@ -14,6 +14,7 @@ from _xlsx_common import (
     EXCEL_INPUT_SUFFIXES,
     EXCEL_OUTPUT_SUFFIXES,
     SkillArgumentParser,
+    cell_range_bounds,
     input_file,
     load_json_argument,
     normalize_formula_error,
@@ -503,12 +504,12 @@ def _op_set_row_heights(workbook: Any, op: dict[str, Any]) -> int:
 def _op_auto_fit(workbook: Any, op: dict[str, Any]) -> int:
     import math
     import unicodedata
-    from openpyxl.utils.cell import get_column_letter, range_boundaries
+    from openpyxl.utils.cell import get_column_letter
 
     worksheet = _sheet(workbook, op.get("sheet"))
     reference = validate_cell_range(str(op.get("range", "")))
     cells = list(_iter_range_cells(worksheet, reference))
-    min_col, min_row, max_col, max_row = range_boundaries(reference)
+    min_col, min_row, max_col, max_row = cell_range_bounds(reference)
     minimum, maximum = float(op.get("min_width", 8)), float(op.get("max_width", 40))
     if not 1 <= minimum <= maximum <= 100:
         raise ValueError("auto_fit 列宽需满足 1 <= min_width <= max_width <= 100")
@@ -568,7 +569,6 @@ def _op_add_table(workbook: Any, op: dict[str, Any]) -> int:
 
 def _op_add_chart(workbook: Any, op: dict[str, Any]) -> int:
     from openpyxl.chart import AreaChart, BarChart, LineChart, PieChart, Reference
-    from openpyxl.utils.cell import range_boundaries
 
     worksheet = _sheet(workbook, op.get("sheet"))
     chart_type = str(op.get("chart_type", "bar")).lower()
@@ -582,7 +582,7 @@ def _op_add_chart(workbook: Any, op: dict[str, Any]) -> int:
     if chart_type not in chart_classes:
         raise ValueError("chart_type 仅支持 area、bar、column、line、pie")
     data_range = validate_cell_range(str(op.get("data_range", "")))
-    min_col, min_row, max_col, max_row = range_boundaries(data_range)
+    min_col, min_row, max_col, max_row = cell_range_bounds(data_range)
     chart = chart_classes[chart_type]()
     if isinstance(chart, BarChart):
         chart.type = "bar" if chart_type == "bar" else "col"
@@ -600,7 +600,7 @@ def _op_add_chart(workbook: Any, op: dict[str, Any]) -> int:
     )
     if op.get("categories_range"):
         category_range = validate_cell_range(str(op["categories_range"]))
-        c_min_col, c_min_row, c_max_col, c_max_row = range_boundaries(
+        c_min_col, c_min_row, c_max_col, c_max_row = cell_range_bounds(
             category_range
         )
         categories = Reference(
@@ -619,10 +619,9 @@ def _op_add_chart(workbook: Any, op: dict[str, Any]) -> int:
         chart.y_axis.title = str(op["y_axis_title"])
     if "style" in op:
         chart.style = int(op["style"])
-    if "height" in op:
-        chart.height = float(op["height"])
-    if "width" in op:
-        chart.width = float(op["width"])
+    for dimension in ("height", "width"):
+        if dimension in op:
+            setattr(chart, dimension, float(op[dimension]))
     if "legend_position" in op and chart.legend:
         chart.legend.position = str(op["legend_position"])
     anchor = validate_cell_reference(str(op.get("anchor", "E2")))
@@ -639,10 +638,9 @@ def _op_add_image(workbook: Any, op: dict[str, Any]) -> int:
         {".png", ".jpg", ".jpeg", ".gif", ".bmp"},
     )
     image = Image(str(image_path))
-    if "width" in op:
-        image.width = float(op["width"])
-    if "height" in op:
-        image.height = float(op["height"])
+    for dimension in ("width", "height"):
+        if dimension in op:
+            setattr(image, dimension, float(op[dimension]))
     anchor = validate_cell_reference(str(op.get("anchor", "A1")))
     worksheet.add_image(image, anchor)
     return 0
@@ -654,7 +652,7 @@ def _op_add_data_validation(workbook: Any, op: dict[str, Any]) -> int:
     worksheet = _sheet(workbook, op.get("sheet"))
     reference = validate_cell_range(str(op.get("range", "")))
     validation_type = str(op.get("validation_type", "list"))
-    allowed = {
+    allowed = (
         "list",
         "whole",
         "decimal",
@@ -662,7 +660,7 @@ def _op_add_data_validation(workbook: Any, op: dict[str, Any]) -> int:
         "time",
         "textLength",
         "custom",
-    }
+    )
     if validation_type not in allowed:
         raise ValueError(f"validation_type 不支持：{validation_type}")
     validation = DataValidation(
@@ -1051,7 +1049,7 @@ def main() -> dict[str, Any]:
         "path": str(destination),
         "source": str(source) if source else None,
         "sheet_names": workbook.sheetnames,
-        "active_sheet": workbook.active.title,
+        "active_sheet": workbook.active.title if workbook.active is not None else None,
         "operation_count": len(operations),
         "processed_cell_count": written_cells,
         "formula_count": scan["formula_count"],

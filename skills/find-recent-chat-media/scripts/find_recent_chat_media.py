@@ -101,7 +101,7 @@ def _ensure_skill_venv_python() -> None:
 _ensure_skill_venv_python()
 
 try:
-    import pymysql  # type: ignore[import-untyped]  # noqa: E402
+    import pymysql
 except ModuleNotFoundError:
     _run_bootstrap()
     python_executable = _get_python_executable()

@@ -70,8 +70,8 @@ def _ensure_skill_venv_python() -> None:
 _ensure_skill_venv_python()
 
 try:
-    import pymysql  # type: ignore  # noqa: E402
-    from openai import OpenAI  # type: ignore  # noqa: E402
+    import pymysql
+    from openai import OpenAI
 except ModuleNotFoundError:
     _run_bootstrap()
     _py = _get_python_executable()

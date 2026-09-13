@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from _docx_common import W_NS, parse_xml_bytes, qn
+from _docx_common import parse_xml_bytes, qn
 
 
 class TrackedReplacement:

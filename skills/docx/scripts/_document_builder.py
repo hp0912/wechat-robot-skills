@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
-from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 
-from _docx_common import W_NS, input_file, qn
+from _docx_common import input_file, qn
 
 
 MAX_BLOCKS = 1_000
@@ -132,7 +130,7 @@ def _add_hyperlink(
         is_external=True,
     )
     hyperlink = OxmlElement("w:hyperlink")
-    hyperlink.set(f"{{http://schemas.openxmlformats.org/officeDocument/2006/relationships}}id", relationship_id)
+    hyperlink.set("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id", relationship_id)
     run = paragraph.add_run(text)
     apply_run_style(run, raw_spec)
     run_properties = run._element.get_or_add_rPr()
@@ -232,7 +230,7 @@ def add_paragraph_from_spec(
     style: Optional[str] = None,
     default_run_style: Optional[dict[str, Any]] = None,
 ) -> Any:
-    spec = (
+    spec: dict[str, Any] = (
         {"text": raw_spec}
         if isinstance(raw_spec, str)
         else expect_object(raw_spec, "paragraph")
@@ -442,17 +440,17 @@ def _add_toc(container: Any, raw_spec: Any) -> Any:
 
 def _add_horizontal_rule(container: Any, raw_spec: Any) -> Any:
     from docx.oxml import OxmlElement
+    from lxml.etree import SubElement
 
     spec = expect_object(raw_spec, "horizontal_rule")
     paragraph = container.add_paragraph()
     properties = paragraph._p.get_or_add_pPr()
     borders = OxmlElement("w:pBdr")
-    bottom = OxmlElement("w:bottom")
+    bottom = SubElement(borders, qn("bottom"))
     bottom.set(qn("val"), str(spec.get("style", "single")))
     bottom.set(qn("sz"), str(int(spec.get("size", 6))))
     bottom.set(qn("space"), str(int(spec.get("space", 1))))
     bottom.set(qn("color"), color(spec.get("color", "808080"), "rule.color"))
-    borders.append(bottom)
     properties.append(borders)
     return paragraph
 
@@ -587,7 +585,7 @@ def _points(value: float) -> Any:
 
 def apply_page_settings(section: Any, raw_spec: Any) -> None:
     from docx.enum.section import WD_ORIENT
-    from docx.shared import Cm, Inches, Mm
+    from docx.shared import Inches, Mm
 
     spec = expect_object(raw_spec, "page")
     size = str(spec.get("size", "A4")).upper()

@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-import numpy as np
 import pandas as pd
 
 from _xlsx_common import SkillArgumentParser, load_json_argument, run_cli
@@ -72,6 +71,8 @@ def transform(frame: pd.DataFrame, operations: list[dict], audit: list) -> pd.Da
             if predicate in {"eq", "ne", "gt", "ge", "lt", "le"}:
                 mask = getattr(series, predicate)(value)
             elif predicate in {"in", "not_in"}:
+                if not isinstance(value, list):
+                    raise ValueError("in/not_in 的 value 必须是数组")
                 mask = series.isin(value)
                 if predicate == "not_in":
                     mask = ~mask
@@ -148,8 +149,11 @@ def aggregate(frame: pd.DataFrame, spec: dict, *, pivot: bool) -> pd.DataFrame:
             raise ValueError("行维度与列维度不能重复")
     result = frame.groupby(by + column_fields, dropna=False, sort=False, observed=True).agg(reducers)
     if column_fields:
-        result = result.unstack(column_fields)
-        result.columns = [json_label(parts) for parts in result.columns.to_flat_index()]
+        unstacked = result.unstack(column_fields)
+        if not isinstance(unstacked, pd.DataFrame) or not isinstance(unstacked.columns, pd.MultiIndex):
+            raise ValueError("透视聚合未生成预期的多级字段表")
+        unstacked.columns = pd.Index([json_label(parts) for parts in unstacked.columns.to_flat_index()])
+        result = unstacked
     return result.reset_index()
 
 

@@ -314,6 +314,9 @@ def main() -> dict[str, Any]:
             + "、".join(archive["missing_required_parts"])
         )
     presentation = Presentation(str(source))
+    slide_width, slide_height = presentation.slide_width, presentation.slide_height
+    if slide_width is None or slide_height is None:
+        raise ValueError("演示文稿缺少页面尺寸")
     slide_count = len(presentation.slides)
     if args.start_slide > slide_count and slide_count > 0:
         raise ValueError(f"start-slide 超出页面总数 {slide_count}")
@@ -327,8 +330,8 @@ def main() -> dict[str, Any]:
         title = slide.shapes.title.text if slide.shapes.title is not None else ""
         media_profile = _slide_media_profile(
             slide,
-            int(presentation.slide_width),
-            int(presentation.slide_height),
+            slide_width,
+            slide_height,
         )
         shapes: list[dict[str, Any]] = []
         for shape in list(slide.shapes)[: args.max_shapes]:

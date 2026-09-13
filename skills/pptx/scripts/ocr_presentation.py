@@ -588,8 +588,9 @@ def main() -> dict[str, Any]:
     if args.start_offset > 0 and len(requested_slides) != 1:
         raise ValueError("使用 start-offset 时 slides 必须只包含一页")
 
-    slide_width = int(presentation.slide_width)
-    slide_height = int(presentation.slide_height)
+    slide_width, slide_height = presentation.slide_width, presentation.slide_height
+    if slide_width is None or slide_height is None:
+        raise ValueError("演示文稿缺少页面尺寸")
     profiles = {
         slide_number: _slide_profile(
             presentation.slides[slide_number - 1],

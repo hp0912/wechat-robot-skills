@@ -1,0 +1,19 @@
+{
+  "name": "wechat-robot-skills-checks",
+  "private": true,
+  "scripts": {
+    "check": "npm run lint:python && npm run typecheck:python && npm run typecheck:ts && npm run lint:js",
+    "lint:python": "ruff check .",
+    "typecheck:python": "pyright --warnings",
+    "typecheck:ts": "tsc --noEmit --project skills/web-page/scripts/tsconfig.json",
+    "lint:js": "eslint eslint.config.cjs \"skills/**/*.js\" \"skills/**/*.cjs\" --max-warnings 0"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@types/node": "25.9.1",
+    "eslint": "9.39.5",
+    "globals": "17.12.0",
+    "pyright": "1.1.414",
+    "typescript": "6.0.3"
+  }
+}

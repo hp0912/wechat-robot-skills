@@ -16,21 +16,22 @@ MAX_SOURCE_BYTES = 2 * 1024 * 1024
 
 
 class StaticHTML(HTMLParser):
-    def handle_starttag(self, tag, attributes):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         tag = tag.lower()
-        attrs = {key.lower(): value or '' for key, value in attributes}
+        attributes = {key.lower(): value or '' for key, value in attrs}
         if tag in {'script', 'iframe', 'object', 'embed', 'base', 'frame', 'frameset'}:
             raise ValueError(f'HTML 不允许 {tag}；仅支持静态 HTML/CSS/SVG，公式和 Mermaid 由固定渲染器处理')
-        if any(key.startswith('on') for key in attrs) or 'srcdoc' in attrs:
+        if any(key.startswith('on') for key in attributes) or 'srcdoc' in attributes:
             raise ValueError('HTML 不允许事件处理程序或 srcdoc')
-        if tag == 'meta' and 'http-equiv' in attrs:
+        if tag == 'meta' and 'http-equiv' in attributes:
             raise ValueError('HTML 不允许 http-equiv；网络和文档策略由固定渲染器设置')
         for key in ('href', 'src', 'xlink:href', 'action', 'formaction'):
-            value = ''.join(attrs.get(key, '').split()).lower()
+            value = ''.join(attributes.get(key, '').split()).lower()
             if value.startswith(('javascript:', 'vbscript:', 'file:')):
                 raise ValueError('HTML 不允许脚本 URL 或 file: 资源；使用任务目录内相对路径')
 
-    handle_startendtag = handle_starttag
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.handle_starttag(tag, attrs)
 
 
 def read_source(value: str, suffixes: set[str]) -> Path:

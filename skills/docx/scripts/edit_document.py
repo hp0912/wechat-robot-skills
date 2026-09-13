@@ -8,7 +8,7 @@ import re
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable
 
 from _document_builder import (
     add_blocks,
@@ -445,7 +445,7 @@ def main() -> dict[str, Any]:
     os.close(descriptor)
     temp_path = Path(temp_name)
     try:
-        document.save(temp_path)
+        document.save(str(temp_path))
         archive = inspect_archive(temp_path)
         if archive["missing_required_parts"]:
             raise ValueError(

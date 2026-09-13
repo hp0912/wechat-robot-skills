@@ -96,7 +96,7 @@ def main() -> dict[str, Any]:
     os.close(descriptor)
     temp_path = Path(temp_name)
     try:
-        document.save(temp_path)
+        document.save(str(temp_path))
         archive = inspect_archive(temp_path)
         if archive["missing_required_parts"]:
             raise ValueError(

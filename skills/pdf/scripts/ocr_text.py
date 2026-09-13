@@ -193,6 +193,8 @@ def _create_ocr_engine():
     except ImportError as exc:
         raise RuntimeError("环境预置的 rapidocr 模块不可用") from exc
 
+    if rapidocr.__file__ is None:
+        raise RuntimeError("无法确定 rapidocr 模块的安装路径")
     model_dir = Path(rapidocr.__file__).resolve().parent / "models"
     models = {"Det": "PP-OCRv6_det_small.onnx", "Cls": "ch_ppocr_mobile_v2.0_cls_mobile.onnx", "Rec": "PP-OCRv6_rec_small.onnx"}
     missing = [filename for filename in models.values() if not (model_dir / filename).is_file()]

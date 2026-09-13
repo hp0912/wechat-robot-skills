@@ -10,18 +10,21 @@ import tempfile
 import unittest
 from copy import deepcopy
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
-sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from docx import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from lxml.etree import _Element
 from reportlab.pdfgen.canvas import Canvas
 
 import _docx_common as common
 import compile_typst
+
+sys.dont_write_bytecode = True
 
 
 class DocumentWorkflows(unittest.TestCase):
@@ -45,14 +48,14 @@ class DocumentWorkflows(unittest.TestCase):
         p.add_run("HEL").bold = True
         p.add_run("LO")
         p.add_run(" AFTER").italic = True
-        doc.save(self.source)
+        doc.save(str(self.source))
         return doc
 
     def edit(self, operations, *args):
         output = self.root / "edited.docx"
         result = self.call("edit_document", "--input", self.source, "--output", output,
                            "--spec", json.dumps({"operations": operations}), *args)
-        return result, Document(output)
+        return result, Document(str(output))
 
     def test_cross_run_preserves_unmodified_styles_and_escapes_text(self):
         self.fixture()
@@ -67,7 +70,7 @@ class DocumentWorkflows(unittest.TestCase):
     def test_single_and_split_matches_are_both_replaced(self):
         doc = self.fixture()
         doc.add_paragraph("HELLO HELLO")
-        doc.save(self.source)
+        doc.save(str(self.source))
         result, doc = self.edit([{"type": "replace_text", "find": "HELLO", "replace": "NEW"}])
         self.assertEqual(result["operation_results"][0]["replacement_count"], 3)
         self.assertNotIn("HELLO", "".join(p.text for p in doc.paragraphs))
@@ -99,7 +102,7 @@ class DocumentWorkflows(unittest.TestCase):
     def test_multiple_tracked_matches_in_one_run(self):
         doc = Document()
         doc.add_paragraph("old old old")
-        doc.save(self.source)
+        doc.save(str(self.source))
         result, doc = self.edit([{"type": "replace_text", "find": "old", "replace": "new"}], "--track-changes")
         self.assertEqual(result["tracked_replacement_count"], 3)
         self.assertEqual(len(doc.element.xpath(".//w:p/w:ins")), 3)
@@ -117,8 +120,8 @@ class DocumentWorkflows(unittest.TestCase):
         mark = OxmlElement("w:bookmarkStart")
         mark.set(qn("w:id"), "7")
         mark.set(qn("w:name"), "target")
-        doc.paragraphs[0]._p.insert(2, mark)
-        doc.save(self.source)
+        cast(_Element, doc.paragraphs[0]._p).insert(2, mark)
+        doc.save(str(self.source))
         with self.assertRaisesRegex(ValueError, "书签"):
             self.edit([{"type": "replace_text", "find": "HELLO", "replace": "new"}], "--track-changes")
         self.assertFalse((self.root / "edited.docx").exists())
@@ -128,14 +131,16 @@ class DocumentWorkflows(unittest.TestCase):
         spec = {"claims": [{"number": 1, "text": "一种方法 & 装置", "dependent": False}],
                 "specification": {"field": "领域", "detailed": ["实现 <描述>"]}, "abstract": "摘要"}
         result = self.call("create_document", "--preset", "patent", "--output", output, "--spec", json.dumps(spec))
-        doc = Document(output)
+        doc = Document(str(output))
         self.assertEqual(len(doc.sections), 3)
         self.assertEqual([s.header.paragraphs[0].text for s in doc.sections], ["权利要求书", "说明书", "摘要"])
         for section in doc.sections:
-            self.assertEqual(section._sectPr.find(qn("w:pgNumType")).get(qn("w:start")), "1")
+            page_numbers = section._sectPr.find(qn("w:pgNumType"))
+            assert page_numbers is not None
+            self.assertEqual(page_numbers.get(qn("w:start")), "1")
             self.assertFalse(section.header.is_linked_to_previous)
             self.assertFalse(section.footer.is_linked_to_previous)
-        self.assertTrue(any(p.style.name == "Heading 2" for p in doc.paragraphs))
+        self.assertTrue(any(p.style is not None and p.style.name == "Heading 2" for p in doc.paragraphs))
         self.assertEqual(self.call("validate_document", "--input", result["path"])["status"], "valid")
 
     def test_invalid_patent_numbering_does_not_publish_a_file(self):
@@ -153,7 +158,7 @@ class DocumentWorkflows(unittest.TestCase):
             {"type": "section_break"}, {"type": "paragraph", "text": "Second"}],
             "sections": [{"index": 1, "header": {"text": "Second header"}}]}
         self.call("create_document", "--output", output, "--spec", json.dumps(spec))
-        doc = Document(output)
+        doc = Document(str(output))
         self.assertEqual(doc.tables[0].cell(1, 1).text, "B")
         self.assertEqual([s.header.paragraphs[0].text for s in doc.sections], ["Default", "Second header"])
 

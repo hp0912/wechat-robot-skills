@@ -115,7 +115,7 @@ def _ensure_skill_venv_python() -> None:
 _ensure_skill_venv_python()
 
 try:
-    import pymysql  # type: ignore  # noqa: E402
+    import pymysql
 except ModuleNotFoundError:
     _run_bootstrap()
     _py = _get_python_executable()
@@ -694,7 +694,7 @@ def _decompress_response_bytes(raw: bytes, encoding: str) -> bytes:
             return zlib.decompress(raw, -zlib.MAX_WBITS)
     if encoding == "br":
         try:
-            import brotli  # type: ignore
+            import brotli
         except ModuleNotFoundError as exc:
             raise RuntimeError(
                 "mimo 响应使用了 brotli 压缩，但当前环境未安装 brotli，请安装后重试"

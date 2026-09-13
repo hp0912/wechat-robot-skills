@@ -14,8 +14,8 @@ import numpy as np
 import pandas as pd
 
 from _xlsx_common import (
-    EXCEL_INPUT_SUFFIXES, input_file, output_file, publish_file,
-    normalize_formula_error, validate_cell_range, workbook_has_external_links,
+    EXCEL_INPUT_SUFFIXES, cell_range_bounds, input_file, output_file, publish_file,
+    workbook_has_external_links,
 )
 
 MAX_DATA_CELLS = 500_000
@@ -49,8 +49,9 @@ def scalar(value: Any) -> Any:
             return None
         if not math.isfinite(value):
             raise ValueError("结果含无穷值")
-    if hasattr(value, "isoformat"):
-        return value.isoformat()
+    isoformat = getattr(value, "isoformat", None)
+    if callable(isoformat):
+        return isoformat()
     if isinstance(value, (str, int, float, bool)):
         return value
     return str(value)
@@ -58,7 +59,7 @@ def scalar(value: Any) -> Any:
 
 def read_dataset(path_value: str, spec: dict[str, Any] | None = None) -> tuple[pd.DataFrame, dict]:
     from openpyxl import load_workbook
-    from openpyxl.utils.cell import column_index_from_string, get_column_letter, range_boundaries
+    from openpyxl.utils.cell import column_index_from_string, get_column_letter
 
     spec = spec or {}
     allowed = {"sheet", "range", "header_row", "columns", "exclude_rows", "numeric", "dates", "encoding", "path"}
@@ -72,7 +73,7 @@ def read_dataset(path_value: str, spec: dict[str, Any] | None = None) -> tuple[p
     header_row = int(spec.get("header_row", 1))
     if header_row < 1:
         raise ValueError("header_row 从 1 开始")
-    bounds = range_boundaries(validate_cell_range(spec["range"])) if spec.get("range") else None
+    bounds = cell_range_bounds(spec["range"]) if spec.get("range") else None
     if bounds and not bounds[1] <= header_row <= bounds[3]:
         raise ValueError("header_row 必须位于 range 内")
     records = []
@@ -82,7 +83,8 @@ def read_dataset(path_value: str, spec: dict[str, Any] | None = None) -> tuple[p
         if source.suffix.lower() in EXCEL_INPUT_SUFFIXES:
             formula_wb = load_workbook(source, read_only=True, data_only=False, keep_links=False)
             cached_wb = load_workbook(source, read_only=True, data_only=True, keep_links=False)
-            sheet_name = spec.get("sheet") or formula_wb.active.title
+            active = formula_wb.active
+            sheet_name = spec.get("sheet") or (active.title if active is not None else None)
             if sheet_name not in formula_wb.sheetnames:
                 raise ValueError(f"工作表不存在：{sheet_name}")
             ws, cached = formula_wb[sheet_name], cached_wb[sheet_name]
@@ -230,10 +232,13 @@ def save_plan(tables: list[tuple[str, pd.DataFrame]], metadata: dict, destinatio
         category = chart["category"]
         values = chart["values"]
         require_columns(table, [category, *values])
-        indexes = [table.columns.get_loc(value) + 1 for value in values]
+        if not table.columns.is_unique:
+            raise ValueError("图表来源包含重复字段名")
+        column_names = list(table.columns)
+        indexes = [column_names.index(value) + 1 for value in values]
         if indexes != list(range(min(indexes), max(indexes) + 1)):
             raise ValueError("图表 values 需按顺序选择相邻的结果列")
-        c = get_column_letter(table.columns.get_loc(category) + 1)
+        c = get_column_letter(column_names.index(category) + 1)
         end = len(table) + 1
         if end < 2:
             raise ValueError("没有数据可用于图表")

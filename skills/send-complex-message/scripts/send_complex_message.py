@@ -4,14 +4,40 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import subprocess
 import sys
+import time
 import traceback
 import urllib.request
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import NoReturn
 
 sys.stderr = sys.stdout
+
+MAX_HISTORY_SECONDS = 24 * 60 * 60
+DEFAULT_HISTORY_LIMIT = 50
+MAX_HISTORY_LIMIT = 200
+SHANGHAI_TZ = timezone(timedelta(hours=8))
+MESSAGE_TYPES = {
+    "text": 1,
+    "image": 3,
+    "voice": 34,
+    "card": 42,
+    "video": 43,
+    "emoji": 47,
+    "location": 48,
+    "app": 49,
+    "system": 10000,
+    "recall": 10002,
+}
+
+
+class SkillArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> NoReturn:
+        raise ValueError(message)
 
 
 def _client_private_token() -> str:
@@ -66,7 +92,7 @@ def _ensure_skill_venv_python() -> None:
 def _mysql_connect():
     _ensure_skill_venv_python()
     try:
-        import pymysql  # type: ignore
+        import pymysql
     except ModuleNotFoundError:
         _run_bootstrap()
         venv_python = _skill_venv_python()
@@ -131,18 +157,54 @@ def _expand_json_array_values(values: list[str], label: str) -> list[str]:
     return expanded
 
 
-def _parse_cli_params(argv: list[str]) -> tuple[list[str], str, bool, bool, int | None]:
-    parser = argparse.ArgumentParser(add_help=False)
+def _positive_int(value: str) -> int:
+    number = int(value)
+    if not 0 < number <= 2**63 - 1:
+        raise ValueError("必须是 int64 范围内的正整数")
+    return number
+
+
+def _message_type(value: str) -> int:
+    normalized = value.strip().lower()
+    if normalized in MESSAGE_TYPES:
+        return MESSAGE_TYPES[normalized]
+    return _positive_int(normalized)
+
+
+def _parse_cli_params(argv: list[str]) -> argparse.Namespace:
+    parser = SkillArgumentParser(description="发送消息或查询当前会话最近 24 小时内的聊天记录", allow_abbrev=False)
     parser.add_argument("--mention", action="append", default=[])
     parser.add_argument("--mentions", action="append", default=[])
     parser.add_argument("--all", "--mention-all", dest="mention_all", action="store_true")
     parser.add_argument("--refer-message-id", type=int)
-    parser.add_argument("--content", default="")
+    parser.add_argument("--content")
     parser.add_argument("--ended", action="store_true", default=False)
+    parser.add_argument("--query-history", action="store_true", help="只查询历史聊天记录，不发送消息")
+    parser.add_argument("--hours", type=float, help="查询最近多少小时，支持小数，最多 24 小时")
+    parser.add_argument("--start-time", help="开始时间：Unix 秒或北京时间 YYYY-MM-DD HH:mm[:ss]")
+    parser.add_argument("--end-time", help="结束时间：Unix 秒或北京时间 YYYY-MM-DD HH:mm[:ss]")
+    parser.add_argument("--keyword", action="append", help="正文或显示内容包含的关键词，可重复，多个词须全部匹配")
+    parser.add_argument("--message-type", action="append", type=_message_type, help="消息类型名称或编号，可重复")
+    parser.add_argument("--app-msg-type", action="append", type=_positive_int, help="APP 消息子类型编号，可重复")
+    parser.add_argument("--sender-wxid", help="按发送人微信 ID 精确过滤")
+    parser.add_argument("--limit", type=int, help="单页条数，默认 50，最多 200")
+    parser.add_argument("--offset", type=int, help="分页偏移量，默认 0")
 
-    namespace, unknown = parser.parse_known_args(argv)
-    if unknown:
-        raise ValueError(f"存在不支持的参数: {' '.join(unknown)}")
+    namespace = parser.parse_args(argv)
+
+    if namespace.query_history:
+        if (namespace.mention or namespace.mentions or namespace.mention_all
+                or namespace.refer_message_id is not None or namespace.content is not None
+                or namespace.ended):
+            raise ValueError("--query-history 不能与发送参数或 --ended 同时使用")
+        _validate_history_params(namespace)
+        return namespace
+
+    history_fields = ("hours", "start_time", "end_time", "keyword", "message_type",
+                      "app_msg_type", "sender_wxid", "limit", "offset")
+    if any(getattr(namespace, field) is not None for field in history_fields):
+        raise ValueError("聊天记录过滤参数必须与 --query-history 一起使用")
+    namespace.content = namespace.content or ""
 
     mentions = _expand_json_array_values(namespace.mention + namespace.mentions, "mentions")
     deduped: list[str] = []
@@ -165,7 +227,131 @@ def _parse_cli_params(argv: list[str]) -> tuple[list[str], str, bool, bool, int 
     if not deduped and not namespace.mention_all and not namespace.content.strip():
         raise ValueError("请提供非空 content，或指定要艾特的成员/--all")
 
-    return deduped, namespace.content, namespace.ended, namespace.mention_all, namespace.refer_message_id
+    namespace.mentions = deduped
+    return namespace
+
+
+def _parse_history_time(value: str, field_name: str) -> int:
+    text = value.strip()
+    if text.isascii() and text.isdigit():
+        return int(text)
+    for pattern in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return int(datetime.strptime(text, pattern).replace(tzinfo=SHANGHAI_TZ).timestamp())
+        except ValueError:
+            continue
+    raise ValueError(f"{field_name} 必须是 Unix 秒或北京时间 YYYY-MM-DD HH:mm[:ss]")
+
+
+def _resolve_history_time_range(args: argparse.Namespace) -> tuple[int, int]:
+    now = int(time.time())
+    earliest = now - MAX_HISTORY_SECONDS
+    if args.hours is not None:
+        if args.start_time is not None or args.end_time is not None:
+            raise ValueError("--hours 不能与 --start-time/--end-time 同时使用")
+        if not math.isfinite(args.hours) or not 0 < args.hours <= 24:
+            raise ValueError("hours 必须大于 0 且不超过 24")
+        seconds = int(args.hours * 3600)
+        if seconds < 1:
+            raise ValueError("hours 对应的时间范围不能小于 1 秒")
+        return now - seconds, now
+
+    start = _parse_history_time(args.start_time, "start_time") if args.start_time is not None else earliest
+    end = _parse_history_time(args.end_time, "end_time") if args.end_time is not None else now
+    if start < earliest or end > now:
+        raise ValueError("只能查询最近 24 小时内的聊天记录，不能查询更早或未来的时间")
+    if start >= end:
+        raise ValueError("结束时间必须晚于开始时间")
+    return start, end
+
+
+def _validate_history_params(args: argparse.Namespace) -> None:
+    _resolve_history_time_range(args)
+    args.limit = DEFAULT_HISTORY_LIMIT if args.limit is None else args.limit
+    args.offset = 0 if args.offset is None else args.offset
+    if not 1 <= args.limit <= MAX_HISTORY_LIMIT:
+        raise ValueError(f"limit 必须在 1 到 {MAX_HISTORY_LIMIT} 之间")
+    if not 0 <= args.offset <= 2**63 - 1:
+        raise ValueError("offset 必须是 int64 范围内的非负整数")
+    args.keyword = [keyword.strip() for keyword in (args.keyword or [])]
+    if any(not keyword for keyword in args.keyword):
+        raise ValueError("keyword 不能为空或纯空白")
+    if args.sender_wxid is not None:
+        args.sender_wxid = args.sender_wxid.strip()
+        if not args.sender_wxid:
+            raise ValueError("sender_wxid 不能为空或纯空白")
+    if args.app_msg_type and args.message_type and set(args.message_type) != {49}:
+        raise ValueError("app_msg_type 只能与 APP 消息类型 49（app）一起使用")
+
+
+def _query_history(conn, conversation_id: str, args: argparse.Namespace) -> dict:
+    # 建立连接/安装依赖可能耗时；在真正查询前重新确定最近 24 小时的边界。
+    start, end = _resolve_history_time_range(args)
+    is_chat_room = conversation_id.endswith("@chatroom")
+    conditions = [
+        "from_wxid = %s",
+        "is_chat_room = %s",
+        "created_at >= %s",
+        "created_at <= %s",
+    ]
+    params: list[object] = [conversation_id, is_chat_room, start, end]
+    for keyword in args.keyword:
+        conditions.append("(content LIKE %s ESCAPE '\\\\' OR display_full_content LIKE %s ESCAPE '\\\\')")
+        pattern = f"%{_escape_like(keyword)}%"
+        params.extend((pattern, pattern))
+    if args.sender_wxid:
+        conditions.append("sender_wxid = %s")
+        params.append(args.sender_wxid)
+    if args.message_type:
+        conditions.append(f"`type` IN ({', '.join(['%s'] * len(args.message_type))})")
+        params.extend(args.message_type)
+    if args.app_msg_type:
+        conditions.append("`type` = 49")
+        conditions.append(f"app_msg_type IN ({', '.join(['%s'] * len(args.app_msg_type))})")
+        params.extend(args.app_msg_type)
+    sql = f"""
+        SELECT id, from_wxid, sender_wxid, to_wxid, is_chat_room,
+               type, app_msg_type, content, display_full_content, is_recalled, created_at
+        FROM messages
+        WHERE {' AND '.join(conditions)}
+        ORDER BY created_at DESC, id DESC
+        LIMIT %s OFFSET %s
+    """
+    params.extend((args.limit + 1, args.offset))
+    with conn.cursor() as cursor:
+        cursor.execute(sql, tuple(params))
+        rows = list(cursor.fetchall())
+    has_more = len(rows) > args.limit
+    messages = rows[:args.limit]
+    return {
+        "conversation_id": conversation_id,
+        "is_chat_room": is_chat_room,
+        "start_time": start,
+        "end_time": end,
+        "limit": args.limit,
+        "offset": args.offset,
+        "count": len(messages),
+        "has_more": has_more,
+        "next_offset": args.offset + len(messages) if has_more else None,
+        "messages": messages,
+    }
+
+
+def _run_history_query(conversation_id: str, args: argparse.Namespace) -> int:
+    try:
+        conn = _mysql_connect()
+    except Exception as exc:
+        sys.stdout.write(f"数据库连接失败: {exc}\n")
+        return 1
+    try:
+        result = _query_history(conn, conversation_id, args)
+        sys.stdout.write(json.dumps(result, ensure_ascii=False) + "\n")
+        return 0
+    except Exception as exc:
+        sys.stdout.write(f"查询聊天记录失败: {exc}\n")
+        return 1
+    finally:
+        conn.close()
 
 
 def _escape_like(value: str) -> str:
@@ -257,7 +443,7 @@ def _send_message(
 
 def main() -> int:
     try:
-        mentions, content, ended, mention_all, refer_message_id = _parse_cli_params(sys.argv[1:])
+        args = _parse_cli_params(sys.argv[1:])
     except (ValueError, json.JSONDecodeError) as exc:
         sys.stdout.write(f"参数格式错误: {exc}\n")
         return 1
@@ -266,6 +452,11 @@ def main() -> int:
     if not to_wxid:
         sys.stdout.write("环境变量 ROBOT_FROM_WX_ID 未配置\n")
         return 1
+    if args.query_history:
+        return _run_history_query(to_wxid, args)
+
+    mentions, content = args.mentions, args.content
+    ended, mention_all, refer_message_id = args.ended, args.mention_all, args.refer_message_id
     if (mention_all or mentions) and not to_wxid.endswith("@chatroom"):
         sys.stdout.write("当前会话不是群聊，不能发送艾特消息\n")
         return 1

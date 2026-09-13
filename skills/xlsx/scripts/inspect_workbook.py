@@ -106,6 +106,7 @@ def inspect_excel(
     max_columns: int,
 ) -> dict[str, Any]:
     from openpyxl import load_workbook
+    from openpyxl.worksheet.worksheet import Worksheet
 
     options = openpyxl_load_options(source)
     formulas = load_workbook(source, data_only=False, **options)
@@ -115,6 +116,8 @@ def inspect_excel(
     total_formulas = 0
     total_errors = 0
     for worksheet in formulas.worksheets:
+        if not isinstance(worksheet, Worksheet):
+            raise ValueError("工作表不支持完整检查，请以普通模式加载工作簿")
         formula_count = 0
         error_count = 0
         for cell in worksheet._cells.values():
@@ -136,8 +139,8 @@ def inspect_excel(
                 "auto_filter": worksheet.auto_filter.ref,
                 "merged_ranges": [str(item) for item in worksheet.merged_cells.ranges],
                 "tables": list(worksheet.tables.keys()),
-                "chart_count": len(worksheet._charts),
-                "image_count": len(worksheet._images),
+                "chart_count": len(getattr(worksheet, "_charts")),
+                "image_count": len(getattr(worksheet, "_images")),
                 "formula_count": formula_count,
                 "literal_error_count": error_count,
                 "print_area": str(worksheet.print_area) if worksheet.print_area else None,
@@ -151,7 +154,10 @@ def inspect_excel(
             )
         selected_name = sheet_name
     else:
-        selected_name = formulas.active.title
+        active = formulas.active
+        if active is None:
+            raise ValueError("工作簿没有活动工作表")
+        selected_name = active.title
 
     formula_sheet = formulas[selected_name]
     cached_sheet = cached[selected_name]
@@ -184,7 +190,7 @@ def inspect_excel(
         "format": source.suffix.lower(),
         "macro_enabled": source.suffix.lower() in {".xlsm", ".xltm"},
         "has_external_links": workbook_has_external_links(source),
-        "active_sheet": formulas.active.title,
+        "active_sheet": formulas.active.title if formulas.active is not None else None,
         "sheet_names": formulas.sheetnames,
         "sheets": summaries,
         "defined_names": _defined_names(formulas),

@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from PIL import Image
 from pypdf import PdfReader, PdfWriter
-from pypdf.generic import DictionaryObject, NameObject, TextStringObject
+from pypdf.generic import ArrayObject, DictionaryObject, NameObject, TextStringObject
 from reportlab.pdfgen import canvas
 
 import _pdf_common as common
@@ -59,6 +59,16 @@ class PDFWorkflows(unittest.TestCase):
                                output=str(self.root / "result.pdf"), overwrite=False,
                                data=None, data_file=None, pages=None, **values)
 
+    def widgets(self, document: PdfReader | PdfWriter) -> list[DictionaryObject]:
+        annotations = document.pages[0]["/Annots"]
+        assert isinstance(annotations, ArrayObject)
+        widgets = []
+        for reference in annotations:
+            widget = reference.get_object()
+            assert isinstance(widget, DictionaryObject)
+            widgets.append(widget)
+        return widgets
+
     def test_form_inventory_and_roundtrip_all_supported_types(self):
         fields = edit_pdf.execute(self.args("form-info", offset=0, limit=50))
         infos = {field["id"]: field for field in fields["fields"]}
@@ -71,11 +81,12 @@ class PDFWorkflows(unittest.TestCase):
         result = edit_pdf.execute(args)
         updated = PdfReader(result["path"])
         fields = updated.get_fields()
+        assert fields is not None
         self.assertEqual(fields["name"]["/V"], "Alice 123")
         self.assertEqual(fields["agree"]["/V"], "/Yes")
         self.assertEqual(fields["mode"]["/V"], "/B")
         self.assertEqual(fields["country"]["/V"], "US")
-        widgets = [ref.get_object() for ref in updated.pages[0]["/Annots"]]
+        widgets = self.widgets(updated)
         checkbox = next(widget for widget in widgets if widget.get("/T") == "agree")
         self.assertEqual(checkbox["/AS"], "/Yes")
         radio = [widget for widget in widgets if widget.get("/Parent")]
@@ -86,7 +97,9 @@ class PDFWorkflows(unittest.TestCase):
         args = self.args("form-fill")
         args.data = '{"agree":false}'
         result = edit_pdf.execute(args)
-        self.assertEqual(PdfReader(result["path"]).get_fields()["agree"]["/V"], "/Off")
+        fields = PdfReader(result["path"]).get_fields()
+        assert fields is not None
+        self.assertEqual(fields["agree"]["/V"], "/Off")
 
     def test_invalid_form_input_does_not_publish(self):
         for data in [{"missing":"x"}, {"agree":"false"}, {"mode":True}, {"mode":"Off"},
@@ -100,8 +113,7 @@ class PDFWorkflows(unittest.TestCase):
 
     def test_form_inventory_handles_indirect_appearance(self):
         writer = PdfWriter(clone_from=self.source)
-        for ref in writer.pages[0]["/Annots"]:
-            widget = ref.get_object()
+        for widget in self.widgets(writer):
             if "/AP" in widget:
                 widget[NameObject("/AP")] = writer._add_object(widget["/AP"])
         alternative = self.root / "indirect.pdf"
@@ -113,7 +125,9 @@ class PDFWorkflows(unittest.TestCase):
 
     def test_xfa_rejected_for_fill(self):
         writer = PdfWriter(clone_from=self.source)
-        writer.root_object["/AcroForm"][NameObject("/XFA")] = TextStringObject("unsupported")
+        acroform = writer.root_object["/AcroForm"]
+        assert isinstance(acroform, DictionaryObject)
+        acroform[NameObject("/XFA")] = TextStringObject("unsupported")
         alternative = self.root / "xfa.pdf"
         writer.write(alternative)
         args = self.args("form-fill")
@@ -128,7 +142,7 @@ class PDFWorkflows(unittest.TestCase):
         reader = PdfReader(result["path"])
         self.assertEqual(list(reader.pages[0].cropbox), [50, 50, 500, 700])
         self.assertIn("Original content 123", reader.pages[0].extract_text())
-        self.assertEqual(len(reader.get_fields()), 4)
+        self.assertEqual(len(reader.get_fields() or {}), 4)
 
     def test_crop_rejects_out_of_bounds_and_nonfinite_values(self):
         for box in ["-1,0,300,400", "0,0,601,800", "10,0,0,20", "0,0,nan,20"]:
@@ -142,9 +156,11 @@ class PDFWorkflows(unittest.TestCase):
         args.data = '{"Title":"中文报告","Author":"Test"}'
         result = edit_pdf.execute(args)
         reader = PdfReader(result["path"])
-        self.assertEqual(reader.metadata.title, "中文报告")
-        self.assertEqual(reader.metadata.producer, original.producer)
-        self.assertEqual(len(reader.get_fields()), 4)
+        metadata = reader.metadata
+        assert metadata is not None and original is not None
+        self.assertEqual(metadata.title, "中文报告")
+        self.assertEqual(metadata.producer, original.producer)
+        self.assertEqual(len(reader.get_fields() or {}), 4)
 
     def test_embedded_image_has_original_dimensions(self):
         args = self.args("extract-images", output_dir=str(self.root / "images"), start_image=0, max_images=20)
@@ -189,7 +205,8 @@ class PDFWorkflows(unittest.TestCase):
 class OCRQuality(unittest.TestCase):
     def recognize(self, texts, scores):
         boxes = [[[0, i*30], [100, i*30], [100, i*30+20], [0, i*30+20]] for i in range(len(texts))]
-        engine = lambda _: SimpleNamespace(txts=texts, scores=scores, boxes=boxes)
+        def engine(_):
+            return SimpleNamespace(txts=texts, scores=scores, boxes=boxes)
         return ocr_text._ocr_page(engine, Path("fixture.png"))
 
     def test_mixed_confidence_does_not_certify_uncertain_amount(self):
