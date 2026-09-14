@@ -10,7 +10,7 @@
       "justMyCode": true,
       "args": [
         "--prompt=马云在直播间卖红薯",
-        "--model=gpt-image-2"
+        "--model=gpt-image-2.5-flare"
       ],
       "env": {
         "ROBOT_WECHAT_CLIENT_PORT": "9001",

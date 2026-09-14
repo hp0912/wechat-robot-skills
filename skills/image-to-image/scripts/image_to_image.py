@@ -590,7 +590,7 @@ def call_openai(config: dict, prompt: str, model: str, images: list[str],
         input_files = [path.open("rb") for path in input_paths]
         try:
             kwargs = {
-                "model": model or "gpt-image-2",
+                "model": model or "gpt-image-2.5-flare",
                 "prompt": _openai_prompt(prompt, negative_prompt),
                 "image": input_files,
                 "n": _coerce_int(config.get("n"), 1, 1, 10),
@@ -618,7 +618,7 @@ def call_openai(config: dict, prompt: str, model: str, images: list[str],
 JIMENG_MODELS = {"jimeng-4.5", "jimeng-4.6", "jimeng-4.7", "jimeng-5.0", "jimeng-5.0-pro"}
 DOUBAO_MODELS = {"doubao-seedream-5-0-pro", "doubao-seedream-5-0", "doubao-seededit-3.0-i2i"}
 ZIMAGE_MODELS = {"Z-Image", "Z-Image-Turbo", "Qwen-Image-Edit-2511"}
-OPENAI_MODELS = {"gpt-image-2"}
+OPENAI_MODELS = {"gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"}
 
 
 def _parse_cli_params(argv: list[str]) -> dict:

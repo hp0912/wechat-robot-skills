@@ -13,6 +13,8 @@ description: "图片修改、图生图工具。基于输入的一张或多张图
 
 从数据库中读取绘图配置（API 密钥、Base URL 等），根据用户选择的模型调用对应的绘图 API，返回生成的图片 URL。
 
+OpenAI 默认模型为 `gpt-image-2.5-flare`；用户指定 OpenAI 但未指定具体模型时，传入此模型名。
+
 这个仓库里额外提供了一个可执行脚本 `scripts/image_to_image.py`，方便宿主机器人直接调用。
 
 ## 触发条件
@@ -36,7 +38,7 @@ description: "图片修改、图生图工具。基于输入的一张或多张图
     },
     "model": {
       "type": "string",
-      "description": "画图模型选择（可选）：即梦4.5(jimeng-4.5) / 即梦4.6(jimeng-4.6) / 即梦4.7(jimeng-4.7) / 即梦5.0(jimeng-5.0) / 即梦5.0 Pro(jimeng-5.0-pro) / 豆包5.0 Pro(doubao-seedream-5-0-pro) / 豆包5.0 Lite(doubao-seedream-5-0) / 豆包图生图(doubao-seededit-3.0-i2i) / 造相基础版(Z-Image) / 造相蒸馏版(Z-Image-Turbo) / 造相图片编辑(Qwen-Image-Edit-2511) / OpenAI GPT Image(gpt-image-2)，默认: 空(none)。",
+      "description": "画图模型选择（可选）：即梦4.5(jimeng-4.5) / 即梦4.6(jimeng-4.6) / 即梦4.7(jimeng-4.7) / 即梦5.0(jimeng-5.0) / 即梦5.0 Pro(jimeng-5.0-pro) / 豆包5.0 Pro(doubao-seedream-5-0-pro) / 豆包5.0 Lite(doubao-seedream-5-0) / 豆包图生图(doubao-seededit-3.0-i2i) / 造相基础版(Z-Image) / 造相蒸馏版(Z-Image-Turbo) / 造相图片编辑(Qwen-Image-Edit-2511) / OpenAI gpt-image-2(gpt-image-2) / OpenAI gpt-image-2.5(gpt-image-2.5-flare) / OpenAI gpt-image-2.5 Pro(gpt-image-2.5-sunburst)，默认: 空(none)。",
       "enum": [
         "none",
         "jimeng-4.5",
@@ -50,7 +52,9 @@ description: "图片修改、图生图工具。基于输入的一张或多张图
         "Z-Image",
         "Z-Image-Turbo",
         "Qwen-Image-Edit-2511",
-        "gpt-image-2"
+        "gpt-image-2",
+        "gpt-image-2.5-flare",
+        "gpt-image-2.5-sunburst"
       ],
       "default": "none"
     },
