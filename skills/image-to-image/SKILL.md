@@ -1,6 +1,8 @@
 ---
 name: image-to-image
 description: "图片修改、图生图工具。基于输入的一张或多张图片，结合文本提示词生成新的图片。支持图片混合、风格转换、内容合成等多种创作模式。输入是文字+图片的组合，输出是图片。"
+metadata:
+  concurrency_policy: parallel_safe
 ---
 
 # Image To Image Skill

@@ -1,6 +1,8 @@
 ---
 name: image-recognition
 description: "AI 图像识别工具。当用户提供图片并希望识别、描述、提取文字、分析画面内容或回答图片相关问题时使用。"
+metadata:
+  concurrency_policy: parallel_safe
 ---
 
 # Image Recognition Skill
