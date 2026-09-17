@@ -72,6 +72,26 @@ class HistoryConnection:
         self.database.close()
 
 
+class MemberConnection(HistoryConnection):
+    def __init__(self, members: list[dict]) -> None:
+        super().__init__([])
+        self.database.execute("""
+            CREATE TABLE chat_room_members (
+                id INTEGER PRIMARY KEY, chat_room_id TEXT, wechat_id TEXT,
+                remark TEXT, nickname TEXT, is_leaved INTEGER
+            )
+        """)
+        for member in members:
+            row = {
+                "chat_room_id": "room@chatroom", "remark": "", "nickname": "",
+                "is_leaved": 0, **member,
+            }
+            self.database.execute(
+                f"INSERT INTO chat_room_members ({', '.join(row)}) VALUES ({', '.join(['?'] * len(row))})",
+                tuple(row.values()),
+            )
+
+
 class SendComplexMessageTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -120,7 +140,7 @@ class SendComplexMessageTests(unittest.TestCase):
                     body,
                 )
                 if "--mention" in args:
-                    resolve.assert_called_once_with(connect.return_value, "room@chatroom", ["张三"])
+                    resolve.assert_called_once_with(connect.return_value, "room@chatroom", ["张三"], [])
                     connect.return_value.close.assert_called_once()
                 else:
                     connect.assert_not_called()
@@ -137,6 +157,9 @@ class SendComplexMessageTests(unittest.TestCase):
             ["--refer-message-id", "0", "--content", "收到"],
             ["--refer-message-id", "-1", "--content", "收到"],
             ["--refer-message-id", "9223372036854775808", "--content", "收到"],
+            ["--mention-wxid", " \t", "--content", "收到"],
+            ["--mention-wxid", "wxid_alice", "--all"],
+            ["--mention-wxid", "wxid_alice", "--refer-message-id", "12"],
         ]
         for args in cases:
             with self.subTest(args=args), contextlib.ExitStack() as stack:
@@ -149,6 +172,138 @@ class SendComplexMessageTests(unittest.TestCase):
                 connect.assert_not_called()
                 post.assert_not_called()
                 self.assertFalse(output.getvalue().endswith("ended"))
+
+    def run_member_send(self, members, args):
+        connection = MemberConnection(members)
+        self.addCleanup(connection.close)
+        with mock.patch.object(sys, "argv", [str(SCRIPT_PATH), *args, "--ended"]), \
+                mock.patch.object(self.module, "_mysql_connect", return_value=connection), \
+                mock.patch.object(self.module, "_http_post_json", return_value={"code": 200}) as post, \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            result = self.module.main()
+        self.assertTrue(connection.closed)
+        return result, output.getvalue(), post
+
+    def test_memory_resolved_id_targets_renamed_member_despite_duplicate_names(self) -> None:
+        result, output, post = self.run_member_send([
+            {"id": 1, "wechat_id": "wxid_other", "nickname": "现在的名字"},
+            {"id": 2, "wechat_id": "wxid_renamed", "nickname": "现在的名字", "is_leaved": None},
+        ], ["--mention-wxid", " wxid_renamed "])
+        self.assertEqual(result, 0)
+        post.assert_called_once_with(
+            "http://127.0.0.1:9000/api/v1/robot/message/send/refermessage",
+            {"to_wxid": "room@chatroom", "content": "", "at": ["wxid_renamed"]},
+        )
+        self.assertTrue(output.endswith("ended"))
+
+    def test_explicit_ids_require_exact_current_room_membership(self) -> None:
+        cases = [
+            {"wechat_id": "wxid_target", "is_leaved": 1},
+            {"wechat_id": "wxid_target", "chat_room_id": "other@chatroom"},
+            {"wechat_id": "wxid_target_suffix"},
+        ]
+        for member in cases:
+            with self.subTest(member=member):
+                result, output, post = self.run_member_send([
+                    {"id": 1, **member},
+                    # 即使别人的当前昵称或备注恰好等于目标 ID，也不能回退匹配。
+                    {"id": 2, "wechat_id": "wxid_other", "nickname": "wxid_target", "remark": "wxid_target"},
+                ], ["--mention-wxid", "wxid_target", "--content", "请看公告"])
+                self.assertEqual(result, 1)
+                self.assertIn("未找到当前群内未退群成员: wxid_target", output)
+                self.assertFalse(output.endswith("ended"))
+                post.assert_not_called()
+
+    def test_missing_old_name_stops_entire_send_then_accepts_resolved_id(self) -> None:
+        members = [
+            {"id": 1, "wechat_id": "wxid_zhangsan", "nickname": "张三"},
+            {"id": 2, "wechat_id": "wxid_renamed", "nickname": "新名字"},
+        ]
+        common_args = ["--mention", "张三", "--content", "请看公告", "--refer-message-id", "12"]
+        result, output, post = self.run_member_send(members, [*common_args, "--mention", "旧名字"])
+        self.assertEqual(result, 1)
+        self.assertIn("旧名字", output)
+        self.assertIn("本次未发送消息", output)
+        self.assertIn("search_chat_room_memory", output)
+        self.assertIn("--mention-wxid", output)
+        self.assertFalse(output.endswith("ended"))
+        post.assert_not_called()
+
+        result, _, post = self.run_member_send(members, [*common_args, "--mention-wxid", "wxid_renamed"])
+        self.assertEqual(result, 0)
+        post.assert_called_once_with(
+            "http://127.0.0.1:9000/api/v1/robot/message/send/refermessage",
+            {"to_wxid": "room@chatroom", "content": "请看公告",
+             "at": ["wxid_zhangsan", "wxid_renamed"], "refer_message_id": 12},
+        )
+
+    def test_mixed_names_and_repeated_ids_mention_each_person_once(self) -> None:
+        result, _, post = self.run_member_send([
+            {"id": 1, "wechat_id": "wxid_zhangsan", "nickname": "张三"},
+            {"id": 2, "wechat_id": "wxid_lisi", "nickname": "李四"},
+        ], ["--mention", "张三", "--mention-wxid", "wxid_zhangsan",
+            "--mention-wxid", "wxid_lisi", "--mention-wxid", "wxid_lisi"])
+        self.assertEqual(result, 0)
+        self.assertEqual(post.call_args.args[1]["at"], ["wxid_zhangsan", "wxid_lisi"])
+
+    def test_current_name_fallback_rejects_exact_and_partial_ambiguity(self) -> None:
+        cases = [
+            [{"remark": "张三"}, {"nickname": "张三"}],
+            [{"nickname": "张三"}, {"nickname": "张三"}],
+            [{"remark": "张三甲"}, {"nickname": "张三乙"}],
+        ]
+        for names in cases:
+            with self.subTest(names=names):
+                members = [
+                    {"id": index, "wechat_id": f"wxid_{index}", **name}
+                    for index, name in enumerate(names, start=1)
+                ]
+                result, output, post = self.run_member_send(members, ["--mention", "张三"])
+                self.assertEqual(result, 1)
+                self.assertIn("成员名称有歧义", output)
+                self.assertFalse(output.endswith("ended"))
+                post.assert_not_called()
+
+    def test_current_name_fallback_finds_exact_match_beyond_many_partial_matches(self) -> None:
+        members = [
+            {"id": index, "wechat_id": f"wxid_{index}", "nickname": f"张三{index}"}
+            for index in range(1, 61)
+        ]
+        members.extend([
+            {"id": 61, "wechat_id": "wxid_target", "nickname": " 张三 "},
+            {"id": 62, "wechat_id": "wxid_left", "nickname": "张三", "is_leaved": 1},
+            {"id": 63, "wechat_id": "wxid_other_room", "nickname": "张三", "chat_room_id": "other@chatroom"},
+        ])
+        result, _, post = self.run_member_send(members, ["--mention", "张三"])
+        self.assertEqual(result, 0)
+        self.assertEqual(post.call_args.args[1]["at"], ["wxid_target"])
+
+    def test_current_name_partial_matching_treats_wildcards_as_literal(self) -> None:
+        result, _, post = self.run_member_send([
+            {"id": 1, "wechat_id": "wxid_target", "nickname": "前缀100%_\\后缀"},
+            {"id": 2, "wechat_id": "wxid_other", "nickname": "前缀100AB\\后缀"},
+        ], ["--mention", "100%_\\"])
+        self.assertEqual(result, 0)
+        self.assertEqual(post.call_args.args[1]["at"], ["wxid_target"])
+
+    def test_unresolved_id_does_not_send_other_resolved_members(self) -> None:
+        result, output, post = self.run_member_send([
+            {"id": 1, "wechat_id": "wxid_zhangsan", "nickname": "张三"},
+        ], ["--mention", "张三", "--mention-wxid", "wxid_missing", "--content", "请看公告"])
+        self.assertEqual(result, 1)
+        self.assertFalse(output.endswith("ended"))
+        post.assert_not_called()
+
+    def test_mention_ids_are_rejected_in_private_conversations(self) -> None:
+        with mock.patch.dict(os.environ, {"ROBOT_FROM_WX_ID": "wxid_friend"}), \
+                mock.patch.object(sys, "argv", [str(SCRIPT_PATH), "--mention-wxid", "wxid_alice"]), \
+                mock.patch.object(self.module, "_mysql_connect") as connect, \
+                mock.patch.object(self.module, "_http_post_json") as post, \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(self.module.main(), 1)
+            self.assertIn("当前会话不是群聊", output.getvalue())
+            connect.assert_not_called()
+            post.assert_not_called()
 
     def run_history(self, rows, args=(), conversation="room@chatroom") -> dict:
         connection = HistoryConnection(rows)
@@ -285,6 +440,7 @@ class SendComplexMessageTests(unittest.TestCase):
             ["--message-type", "bad"], ["--message-type", "0"], ["--app-msg-type", "-1"],
             ["--message-type", "text", "--app-msg-type", "57"],
             ["--content", "你好"], ["--content", ""], ["--mention", "张三"], ["--mentions", "[]"],
+            ["--mention-wxid", "wxid_alice"],
             ["--all"], ["--refer-message-id", "1"], ["--ended"],
             ["--conversation-id", "other@chatroom"], ["--from-wxid", "other@chatroom"],
         ]

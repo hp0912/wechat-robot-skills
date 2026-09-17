@@ -1,6 +1,6 @@
 ---
 name: send-complex-message
-description: "在当前微信会话中发送纯文本、引用回复或群聊艾特/@/提及消息，也可按时间、关键词、消息类型和发送人查询当前群聊或私聊最近24小时内的聊天记录。用户要求发送、艾特、引用回复或查找近期历史消息时使用，可在发送后结束当前 Agent 对话。"
+description: "在当前微信会话中发送纯文本、引用回复或群聊艾特/@/提及消息，支持用昵称、曾用名、外号或微信 ID 查找群成员。也可按时间、关键词、消息类型和发送人查询当前群聊或私聊最近24小时内的聊天记录。用户要求发送、艾特、引用回复或查找近期历史消息时使用，可在发送后结束当前 Agent 对话。"
 ---
 
 # Send Complex Message Skill
@@ -9,7 +9,9 @@ description: "在当前微信会话中发送纯文本、引用回复或群聊艾
 
 本技能是当前微信会话中纯文本、艾特和引用回复的统一发送入口。仅艾特时不需要正文；引用消息必须有正文，也可以附带成员艾特参数。艾特支持指定一个或多个成员，也支持微信原生的 `@所有人`。
 
-技能脚本位于 `scripts/send_complex_message.py`。加上 `--query-history` 时只查询当前会话历史消息；发送模式统一调用客户端的 `/message/send/refermessage` 接口。`refer_message_id` 是可选参数：不传时由客户端调用普通文本消息方法，传入时发送引用消息。指定成员时，根据昵称或备注查询当前群内未退群成员；@所有人时使用客户端协议值 `notify@all`，不要把 `@昵称` 或 `@所有人` 当普通正文拼接。
+技能脚本位于 `scripts/send_complex_message.py`。加上 `--query-history` 时只查询当前会话历史消息；发送模式调用客户端的 `/message/send/refermessage` 接口。`refer_message_id` 是可选参数：不传时由客户端调用普通文本消息方法，传入时发送引用消息。
+
+按名称艾特成员时，先查记忆找到对应的微信 ID，再发送消息。@所有人使用客户端协议值 `notify@all`，不要把 `@昵称` 或 `@所有人` 当普通正文拼接。
 
 本技能不带引用 ID 时通过普通文本消息实现原生艾特，支持只艾特而不附加正文。带引用 ID 时，客户端接收 `at` 并显示艾特名称，但尚未实现引用消息中的原生艾特提醒，不能把引用发送成功表述为已经提醒成员。
 
@@ -93,18 +95,26 @@ python3 scripts/send_complex_message.py --query-history --start-time "$START_TIM
   "properties": {
     "mention": {
       "type": "string",
-      "description": "要艾特的群成员昵称或备注。按用户原话提取，不要改写。"
+      "description": "用户给出的成员名称。先查记忆，将找到的微信 ID 填入 mention_wxids；查不到或记忆工具不可用时，用此参数查当前群成员。"
     },
     "mentions": {
       "type": "array",
       "items": {
         "type": "string"
       },
-      "description": "要艾特的多个群成员昵称或备注。"
+      "description": "多个成员名称，用法同 mention。"
+    },
+    "mention_wxids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "\\S"
+      },
+      "description": "用户明确提供或从当前会话工具结果唯一确认的微信 ID。脚本只按微信 ID 校验当前群成员，可与 mention/mentions 混用，不得填入昵称或猜测 ID。"
     },
     "all": {
       "type": "boolean",
-      "description": "是否 @所有人。用户明确要求 @所有人或通知全体成员时设为 true，不能与 mention/mentions 同时使用。"
+      "description": "是否 @所有人。用户明确要求 @所有人或通知全体成员时设为 true，不能与 mention/mentions/mention_wxids 同时使用。"
     },
     "content": {
       "type": "string",
@@ -137,6 +147,12 @@ python3 scripts/send_complex_message.py --query-history --start-time "$START_TIM
       }
     },
     {
+      "required": ["mention_wxids"],
+      "properties": {
+        "mention_wxids": { "minItems": 1 }
+      }
+    },
+    {
       "required": ["all"],
       "properties": { "all": { "const": true } }
     }
@@ -154,9 +170,10 @@ python3 scripts/send_complex_message.py --query-history --start-time "$START_TIM
 对应命令行参数：
 
 - `--refer-message-id <messages.id>` 可选，传入后发送引用消息，必须同时提供非空 `--content`
-- `--mention <昵称或备注>` 指定成员时使用，可重复传入
-- `--mentions <JSON数组>` 指定成员时可选，用于一次传入多个昵称或备注
-- `--all`（也支持 `--mention-all`）可选，用于真正 @所有人，不能与 mention 参数同用
+- `--mention <名称>` 仅在记忆工具不可用或无候选时传入原名称，脚本按当前昵称或备注匹配，可重复传入
+- `--mentions <JSON数组>` 与 `--mention` 相同，用于一次传入多个名称
+- `--mention-wxid <微信ID>` 对应 `mention_wxids` 中的一个 ID，可重复传入，也可与名称参数混用；只精确匹配微信 ID
+- `--all`（也支持 `--mention-all`）可选，用于真正 @所有人，不能与任何指定成员参数同用
 - `--content <文本内容>` 纯文本和引用消息必填，单独艾特时可省略或为空
 - `--ended` 可选标志。当 Agent 已完成消息发送、要说的话已说完时传入。
 
@@ -171,26 +188,41 @@ python3 scripts/send_complex_message.py --query-history --start-time "$START_TIM
 
 ## 成员匹配规则
 
-仅指定成员时执行以下匹配；`--all` 不查询成员表：
+发送前，脚本会检查当前群聊 `ROBOT_FROM_WX_ID` 对应的 `chat_room_members`，只接受 `is_leaved` 为空或 `0` 的成员。`--all` 不查询成员表。
 
-1. 只在当前群聊 `ROBOT_FROM_WX_ID` 对应的 `chat_room_members` 记录中查找。
-2. 只匹配 `is_leaved` 为空或 `0` 的成员，已经退群的成员不能被艾特。
-3. 使用用户给出的昵称或备注做模糊查询，字段优先级为 `remark`，然后是 `nickname`。
-4. 查询到候选成员后，优先选择 `remark` 完全等于输入值的成员。
-5. 如果没有完全相等的 `remark`，选择 `nickname` 完全等于输入值的成员。
-6. 如果没有完全相等结果，选择第一个 `remark` 包含输入值的成员。
-7. 如果仍未命中，选择第一个 `nickname` 包含输入值的成员。
+- `--mention-wxid`：只按 `wechat_id` 精确匹配；不存在、已退群或只存在于其他群时失败，不回退到昵称匹配。
+- `--mention`/`--mentions`：先查当前备注和昵称是否与输入完全相同，找不到再查是否包含输入名称；找到多人就停止。仅在记忆工具不可用或查不到人时使用。如果记忆已经查出多个候选，应请用户明确要艾特谁。
+
+## 查找要艾特的成员
+
+1. 用 `search_chat_room_memory` 查询用户给出的名称。如果用户已经提供微信 ID，或当前会话的工具结果已经确认了微信 ID，直接用 `--mention-wxid` 发送。
+2. 将用户给出的原名称放入 `member_names`，将原始艾特请求放入 `query`；每次最多查询 10 个名称，超出时分批。只有 `search_chat_room_memory` 不可用而 `search_memory` 可用时，才使用后者并同样传入 `member_names` 和 `query`。
+3. 检查 `name_resolutions` 中每个名称的 `candidates`。只有一个候选且 `current_in_room` 为 `true` 时，取其 `wechat_id`。名称记录的 `is_active: false` 表示旧称呼，是否退群看 `current_in_room`。查到多人或对方已退群时，停止发送并请用户明确要艾特谁。
+4. 两个记忆工具都不可用，或某个名称没有候选时，把原名称传给 `--mention`/`--mentions`，查当前群成员。仍然找不到或找到多人时，请用户补充名称或微信 ID。返回 `no_reliable_match: true` 时，检查每个名称的候选，分别处理未找到和重名的情况。
+5. 用 `--mention-wxid` 传入查到的微信 ID。脚本会再次检查对方是否还在群内。艾特多人时，保留全部收件人、正文和引用参数，所有人都查清楚后一起发送。
+
+例如用户说“帮我艾特 xxxx，提醒他看群公告”，先调用 `search_chat_room_memory`：
+
+```json
+{"member_names": ["xxxx"], "query": "帮我艾特 xxxx，提醒他看群公告"}
+```
+
+仅当返回唯一且仍在群内的候选，并且其 `wechat_id` 为 `wxid_example` 时执行（将示例 ID 替换为实际结果）：
+
+```bash
+python3 scripts/send_complex_message.py --mention-wxid 'wxid_example' --content '请看群公告' --ended
+```
 
 ## 发送执行步骤
 
 1. 判断用户需要纯文本、仅艾特、引用回复，还是引用时同时艾特。纯文本和引用回复必须准备非空正文 `content`；引用时按上面的规则确定 `refer_message_id`。
-2. 如需指定成员，把用户原话中的昵称或备注写入 `mention`/`mentions`；@所有人时设置 `all: true` 并使用 `--all`。
+2. 按上面的步骤查找成员，把确认的微信 ID 写入 `mention_wxids`；记忆工具不可用或查不到人时使用 `mention`/`mentions`。@所有人时设置 `all: true` 并使用 `--all`。
 3. 在该技能目录执行脚本，例如：
 
-仅艾特某人，不附加正文：
+以下指定成员的示例均假设已确认其微信 ID 为 `wxid_zhangsan`，执行时使用实际 ID。仅艾特某人，不附加正文：
 
 ```bash
-python3 scripts/send_complex_message.py --mention '张三' --ended
+python3 scripts/send_complex_message.py --mention-wxid 'wxid_zhangsan' --ended
 ```
 
 仅发送文本，不艾特、不引用：
@@ -214,13 +246,13 @@ python3 scripts/send_complex_message.py --refer-message-id "$ROBOT_REF_MESSAGE_I
 引用已确认的历史消息并附带成员显示（当前客户端不产生原生艾特提醒）：
 
 ```bash
-python3 scripts/send_complex_message.py --refer-message-id 12345 --mention '张三' --content '请看一下这个'
+python3 scripts/send_complex_message.py --refer-message-id 12345 --mention-wxid 'wxid_zhangsan' --content '请看一下这个'
 ```
 
 艾特群成员并附加正文：
 
 ```bash
-python3 scripts/send_complex_message.py --mention '张三' --content '看一下这个'
+python3 scripts/send_complex_message.py --mention-wxid 'wxid_zhangsan' --content '看一下这个'
 ```
 
 用户要求 @所有人时传 `--all`，不要把“所有人”当成员昵称查询：
@@ -232,10 +264,10 @@ python3 scripts/send_complex_message.py --all --content '请大家查看群公�
 当 Agent 认为任务已完成、对话可以结束时，加上 `--ended` 标志：
 
 ```bash
-python3 scripts/send_complex_message.py --mention '张三' --content '看一下这个' --ended
+python3 scripts/send_complex_message.py --mention-wxid 'wxid_zhangsan' --content '看一下这个' --ended
 ```
 
-4. 指定成员时，脚本查询数据库表 `chat_room_members` 并解析微信 ID；`--all` 时跳过数据库查询，使用 `at: ["notify@all"]`。如果指定成员未命中，可以查询记忆里是否记录了对方的别称。
+4. 脚本会检查所有指定成员，任何一个人找不到或有重名，整条消息都不发送。如果还没查过记忆，先查记忆；查过仍无法确定是谁，请用户补充信息。`--all` 时跳过数据库查询，使用 `at: ["notify@all"]`。
 5. 脚本通过 `X-Private-Token` 请求头传递环境变量 `ROBOT_CLIENT_PRIVATE_TOKEN`，统一调用 `POST http://127.0.0.1:{ROBOT_WECHAT_CLIENT_PORT}/api/v1/robot/message/send/refermessage`。请求体包含 `to_wxid`、`content`、`at`；只有引用时才添加 `refer_message_id`。不引用时，客户端直接转入普通文本发送方法；纯文本的 `at` 为空数组，仅艾特的 `content` 为空字符串。
 
 `to_wxid` 固定取当前会话 `ROBOT_FROM_WX_ID`。技能在客户端内执行，无需携带管理后台的机器人实例 query `id`。
@@ -248,7 +280,7 @@ python3 scripts/send_complex_message.py --mention '张三' --content '看一下�
 - 传入 `refer_message_id` 时，必须是 int64 范围内的正整数，引用正文不能是空字符串或纯空白；不引用时直接省略 ID，不能为满足校验而猜测或自动填入消息 ID。
 - `--all` 必须独占，不能再指定成员。
 - 每个要艾特的人都必须能在当前群内匹配到未退群成员。
-- 如果同一个微信 ID 被多个昵称命中，只会艾特一次。
+- 如果同一个微信 ID 被多个昵称或 ID 参数命中，只会艾特一次。
 
 ## 依赖安装
 
@@ -266,4 +298,4 @@ python3 scripts/send_complex_message.py --mention '张三' --content '看一下�
 - 成功时，脚本输出「文本消息发送成功」「引用消息发送成功」「艾特消息发送成功」或「艾特所有人消息发送成功」，表示消息已通过客户端接口直接发送，不要再重复发送正文。
 - HTTP 200 不等于业务成功，必须检查响应中的 `code`。当前引用接口成功时可能返回 `data: null`，不能因没有消息对象重发。
 - 如果传入 `--ended`，输出末尾会追加 `ended`，Agent 会自动结束对话。
-- 失败时，返回脚本输出的具体错误信息，不输出 `ended`。引用消息不存在、原消息内容不完整或原发送人不存在时，按客户端错误说明原因；请求超时或发送结果不确定时，不自动重试，以免重复发送。
+- 失败时不输出 `ended`。找不到成员时，按上面的步骤查询；仍无法确定是谁就说明原因。引用消息不存在、原消息内容不完整或原发送人不存在时，按客户端错误说明原因；请求超时或发送结果不确定时，不自动重试，以免重复发送。

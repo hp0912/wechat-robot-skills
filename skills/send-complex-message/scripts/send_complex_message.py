@@ -175,6 +175,8 @@ def _parse_cli_params(argv: list[str]) -> argparse.Namespace:
     parser = SkillArgumentParser(description="发送消息或查询当前会话最近 24 小时内的聊天记录", allow_abbrev=False)
     parser.add_argument("--mention", action="append", default=[])
     parser.add_argument("--mentions", action="append", default=[])
+    parser.add_argument("--mention-wxid", dest="mention_wxids", action="append", default=[],
+                        help="按已确认的微信 ID 艾特当前群成员，可重复，不按昵称回退匹配")
     parser.add_argument("--all", "--mention-all", dest="mention_all", action="store_true")
     parser.add_argument("--refer-message-id", type=int)
     parser.add_argument("--content")
@@ -193,7 +195,7 @@ def _parse_cli_params(argv: list[str]) -> argparse.Namespace:
     namespace = parser.parse_args(argv)
 
     if namespace.query_history:
-        if (namespace.mention or namespace.mentions or namespace.mention_all
+        if (namespace.mention or namespace.mentions or namespace.mention_wxids or namespace.mention_all
                 or namespace.refer_message_id is not None or namespace.content is not None
                 or namespace.ended):
             raise ValueError("--query-history 不能与发送参数或 --ended 同时使用")
@@ -215,8 +217,13 @@ def _parse_cli_params(argv: list[str]) -> argparse.Namespace:
             seen.add(key)
             deduped.append(mention)
 
-    if namespace.mention_all and deduped:
-        raise ValueError("all 不能和 mention 或 mentions 同时使用")
+    mention_wxids = [value.strip() for value in namespace.mention_wxids]
+    if any(not value for value in mention_wxids):
+        raise ValueError("mention-wxid 不能为空")
+    namespace.mention_wxids = list(dict.fromkeys(mention_wxids))
+
+    if namespace.mention_all and (deduped or namespace.mention_wxids):
+        raise ValueError("all 不能和 mention、mentions 或 mention-wxid 同时使用")
 
     if namespace.refer_message_id is not None:
         if not 0 < namespace.refer_message_id <= 2**63 - 1:
@@ -224,7 +231,7 @@ def _parse_cli_params(argv: list[str]) -> argparse.Namespace:
         if not namespace.content.strip():
             raise ValueError("发送引用消息必须提供非空 content")
 
-    if not deduped and not namespace.mention_all and not namespace.content.strip():
+    if not deduped and not namespace.mention_wxids and not namespace.mention_all and not namespace.content.strip():
         raise ValueError("请提供非空 content，或指定要艾特的成员/--all")
 
     namespace.mentions = deduped
@@ -366,55 +373,65 @@ def _normalize(value) -> str:
 
 def _find_member(conn, chat_room_id: str, mention: str) -> dict | None:
     keyword = mention.strip()
-    like_keyword = f"%{_escape_like(keyword)}%"
+    for condition, value in (
+        ("= LOWER(%s)", keyword),
+        ("LIKE LOWER(%s) ESCAPE '\\\\'", f"%{_escape_like(keyword)}%"),
+    ):
+        sql = f"""
+            SELECT DISTINCT wechat_id
+            FROM chat_room_members
+            WHERE chat_room_id = %s
+              AND (is_leaved IS NULL OR is_leaved = 0)
+              AND (
+                LOWER(TRIM(remark)) {condition}
+                OR LOWER(TRIM(nickname)) {condition}
+              )
+            ORDER BY wechat_id
+            LIMIT 2
+        """
+        with conn.cursor() as cursor:
+            cursor.execute(sql, (chat_room_id, value, value))
+            candidates = list(cursor.fetchall())
+        if len(candidates) > 1:
+            raise ValueError(f"成员名称有歧义: {mention}，匹配到多个当前群成员；本次未发送消息，请明确微信 ID")
+        if candidates:
+            return candidates[0]
+    return None
+
+
+def _find_member_by_wechat_id(conn, chat_room_id: str, wechat_id: str) -> dict | None:
     sql = """
         SELECT wechat_id, remark, nickname
         FROM chat_room_members
         WHERE chat_room_id = %s
           AND (is_leaved IS NULL OR is_leaved = 0)
-          AND (
-            (remark IS NOT NULL AND remark LIKE %s ESCAPE '\\\\')
-            OR (nickname IS NOT NULL AND nickname LIKE %s ESCAPE '\\\\')
-          )
-        ORDER BY id ASC
-        LIMIT 50
+          AND wechat_id = %s
+        LIMIT 1
     """
-
     with conn.cursor() as cursor:
-        cursor.execute(sql, (chat_room_id, like_keyword, like_keyword))
-        candidates = list(cursor.fetchall())
-
-    keyword_folded = keyword.casefold()
-
-    for field in ("remark", "nickname"):
-        for candidate in candidates:
-            if _normalize(candidate.get(field)).casefold() == keyword_folded:
-                return candidate
-
-    for field in ("remark", "nickname"):
-        for candidate in candidates:
-            value = _normalize(candidate.get(field)).casefold()
-            if keyword_folded in value:
-                return candidate
-
-    return None
+        cursor.execute(sql, (chat_room_id, wechat_id))
+        members = list(cursor.fetchall())
+    return members[0] if members else None
 
 
-def _resolve_mentions(conn, chat_room_id: str, mentions: list[str]) -> tuple[list[str], list[str]]:
+def _resolve_mentions(
+    conn, chat_room_id: str, mentions: list[str], mention_wxids: list[str],
+) -> tuple[list[str], list[str]]:
     at_wechat_ids: list[str] = []
     seen = set()
     missing: list[str] = []
 
-    for mention in mentions:
-        member = _find_member(conn, chat_room_id, mention)
-        if not member:
-            missing.append(mention)
-            continue
+    for values, find_member in ((mentions, _find_member), (mention_wxids, _find_member_by_wechat_id)):
+        for mention in values:
+            member = find_member(conn, chat_room_id, mention)
+            if not member:
+                missing.append(mention)
+                continue
 
-        wechat_id = _normalize(member.get("wechat_id"))
-        if wechat_id and wechat_id not in seen:
-            seen.add(wechat_id)
-            at_wechat_ids.append(wechat_id)
+            wechat_id = _normalize(member.get("wechat_id"))
+            if wechat_id and wechat_id not in seen:
+                seen.add(wechat_id)
+                at_wechat_ids.append(wechat_id)
 
     return at_wechat_ids, missing
 
@@ -455,9 +472,9 @@ def main() -> int:
     if args.query_history:
         return _run_history_query(to_wxid, args)
 
-    mentions, content = args.mentions, args.content
+    mentions, mention_wxids, content = args.mentions, args.mention_wxids, args.content
     ended, mention_all, refer_message_id = args.ended, args.mention_all, args.refer_message_id
-    if (mention_all or mentions) and not to_wxid.endswith("@chatroom"):
+    if (mention_all or mentions or mention_wxids) and not to_wxid.endswith("@chatroom"):
         sys.stdout.write("当前会话不是群聊，不能发送艾特消息\n")
         return 1
 
@@ -469,7 +486,7 @@ def main() -> int:
     at_wechat_ids: list[str] = []
     if mention_all:
         at_wechat_ids = ["notify@all"]
-    elif mentions:
+    elif mentions or mention_wxids:
         try:
             conn = _mysql_connect()
         except Exception as exc:
@@ -477,7 +494,7 @@ def main() -> int:
             return 1
 
         try:
-            at_wechat_ids, missing = _resolve_mentions(conn, to_wxid, mentions)
+            at_wechat_ids, missing = _resolve_mentions(conn, to_wxid, mentions, mention_wxids)
         except Exception as exc:
             sys.stdout.write(f"查询群成员失败: {exc}\n")
             return 1
@@ -489,6 +506,9 @@ def main() -> int:
 
         if missing:
             sys.stdout.write(f"未找到当前群内未退群成员: {', '.join(missing)}\n")
+            if any(value in mentions for value in missing):
+                sys.stdout.write("本次未发送消息；若还没查过记忆且工具可用，先用 search_chat_room_memory 查找成员，"
+                                 "确认是谁后，用 --mention-wxid 传入微信 ID；查过仍无法确定时，请用户补充信息\n")
             return 1
         if not at_wechat_ids:
             sys.stdout.write("未找到可艾特的群成员\n")
