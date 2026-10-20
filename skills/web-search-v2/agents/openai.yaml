@@ -1,0 +1,4 @@
+interface:
+  display_name: "网页搜索 V2"
+  short_description: "使用 DeepSeek 搜索网页、获取最新信息并抓取网页正文"
+  default_prompt: "使用 $web-search-v2 搜索最新相关资料，读取关键网页并注明来源。"
