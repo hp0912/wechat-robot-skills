@@ -187,17 +187,36 @@ def _http_post_json(url: str, body: dict, headers: dict, timeout: int = 300) -> 
         return json.loads(resp.read().decode("utf-8"))
 
 
-def send_videos(from_wx_id: str, video_urls: list[str]) -> None:
+def _raise_for_client_error(response: object, url_count: int) -> None:
+    if not isinstance(response, dict) or "code" not in response:
+        raise RuntimeError("客户端返回的发送结果无效")
+    if response["code"] != 200:
+        raise RuntimeError(response.get("message") or f"客户端返回错误码 {response['code']}")
+    if url_count:
+        results = response.get("data")
+        if not isinstance(results, list) or len(results) != url_count:
+            raise RuntimeError("客户端返回的逐项发送结果不完整")
+        failures = [
+            str(item) for item in results
+            if not isinstance(item, str) or not item.startswith("成功: ")
+        ]
+        if failures:
+            raise RuntimeError("；".join(failures))
+
+
+def send_videos(from_wx_id: str, video_urls: list[str], send_original: bool | None) -> None:
     client_port = os.environ.get("ROBOT_WECHAT_CLIENT_PORT", "").strip()
     if not client_port:
         raise RuntimeError("环境变量 ROBOT_WECHAT_CLIENT_PORT 未配置")
 
     send_url = f"http://127.0.0.1:{client_port}/api/v1/robot/message/send/video/url"
-    send_body = {
+    send_body: dict[str, object] = {
         "to_wxid": from_wx_id,
-        "video_urls": [url for url in video_urls if url],
+        "video_urls": video_urls,
     }
-    _http_post_json(
+    if send_original is not None:
+        send_body["send_original"] = send_original
+    response = _http_post_json(
         send_url,
         send_body,
         {
@@ -206,6 +225,7 @@ def send_videos(from_wx_id: str, video_urls: list[str]) -> None:
         },
         timeout=60,
     )
+    _raise_for_client_error(response, len(video_urls))
 
 
 def call_jimeng_video(
@@ -262,6 +282,7 @@ def _parse_cli_params(argv: list[str]) -> dict:
     parser.add_argument("--ratio", default="")
     parser.add_argument("--resolution", default="")
     parser.add_argument("--duration", type=int, default=0)
+    parser.add_argument("--send_original", nargs="?", const="true", choices=("true", "false"))
 
     namespace, unknown = parser.parse_known_args(argv)
     if unknown:
@@ -274,6 +295,7 @@ def _parse_cli_params(argv: list[str]) -> dict:
         "ratio": namespace.ratio,
         "resolution": namespace.resolution,
         "duration": namespace.duration,
+        "send_original": None if namespace.send_original is None else namespace.send_original == "true",
     }
 
 
@@ -365,7 +387,7 @@ def main() -> int:
         return 1
 
     try:
-        send_videos(from_wx_id, video_urls)
+        send_videos(from_wx_id, video_urls, params["send_original"])
         sys.stdout.write("ended")
     except Exception as exc:
         sys.stdout.write(f"发送视频失败: {exc}\n")

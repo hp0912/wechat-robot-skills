@@ -17,27 +17,24 @@ def _client_private_token() -> str:
     return os.environ.get("ROBOT_CLIENT_PRIVATE_TOKEN", "").strip()
 
 
-def _raise_for_client_error(response: dict) -> None:
-    if not response:
-        return
-
-    code = response.get("code")
-    if code is not None and str(code) != "200":
-        message = str(response.get("message") or f"客户端返回错误码 {code}")
-        raise RuntimeError(message)
-
-    data = response.get("data")
-    if isinstance(data, list):
+def _raise_for_client_error(response: object, url_count: int) -> None:
+    if not isinstance(response, dict) or "code" not in response:
+        raise RuntimeError("客户端返回的发送结果无效")
+    if response["code"] != 200:
+        raise RuntimeError(response.get("message") or f"客户端返回错误码 {response['code']}")
+    if url_count:
+        results = response.get("data")
+        if not isinstance(results, list) or len(results) != url_count:
+            raise RuntimeError("客户端返回的逐项发送结果不完整")
         failures = [
-            item.strip()
-            for item in data
-            if isinstance(item, str) and item.lstrip().startswith("失败:")
+            str(item) for item in results
+            if not isinstance(item, str) or not item.startswith("成功: ")
         ]
         if failures:
             raise RuntimeError("；".join(failures))
 
 
-def _http_post_json(url: str, body: dict, timeout: int = 300) -> dict:
+def _http_post_json(url: str, body: dict, timeout: int = 300) -> None:
     data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(
         url,
@@ -49,15 +46,8 @@ def _http_post_json(url: str, body: dict, timeout: int = 300) -> dict:
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        text = resp.read().decode("utf-8")
-    if not text.strip():
-        return {}
-
-    response = json.loads(text)
-    if not isinstance(response, dict):
-        raise RuntimeError("客户端返回格式不正确")
-    _raise_for_client_error(response)
-    return response
+        response = json.load(resp)
+    _raise_for_client_error(response, len(body.get("image_urls", [])))
 
 
 def _expand_json_array_values(values: list[str], label: str) -> list[str]:
@@ -88,12 +78,13 @@ def _dedupe(values: list[str]) -> list[str]:
     return deduped
 
 
-def _parse_cli_params(argv: list[str]) -> tuple[list[str], list[str]]:
+def _parse_cli_params(argv: list[str]) -> tuple[list[str], list[str], bool]:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--file_path", action="append", default=[])
     parser.add_argument("--file_paths", action="append", default=[])
     parser.add_argument("--image_url", action="append", default=[])
     parser.add_argument("--image_urls", action="append", default=[])
+    parser.add_argument("--send_original", nargs="?", const="true", choices=("true", "false"))
 
     namespace, unknown = parser.parse_known_args(argv)
     if unknown:
@@ -105,7 +96,7 @@ def _parse_cli_params(argv: list[str]) -> tuple[list[str], list[str]]:
     image_urls = _expand_json_array_values(
         namespace.image_url + namespace.image_urls, "image_urls"
     )
-    return _dedupe(file_paths), _dedupe(image_urls)
+    return _dedupe(file_paths), _dedupe(image_urls), namespace.send_original == "true"
 
 
 def _is_remote_url(value: str) -> bool:
@@ -131,18 +122,24 @@ def _validate_remote_image_url(value: str) -> str:
     return value
 
 
-def _send_local_image(client_port: str, to_wxid: str, file_path: str) -> None:
+def _send_local_image(client_port: str, to_wxid: str, file_path: str, send_original: bool) -> None:
     send_url = (
         f"http://127.0.0.1:{client_port}/api/v1/robot/message/send/image/local"
     )
-    _http_post_json(send_url, {"to_wxid": to_wxid, "file_path": file_path})
+    _http_post_json(
+        send_url,
+        {"to_wxid": to_wxid, "file_path": file_path, "send_original": send_original},
+    )
 
 
 def _send_remote_images(
-    client_port: str, to_wxid: str, image_urls: list[str]
+    client_port: str, to_wxid: str, image_urls: list[str], send_original: bool
 ) -> None:
     send_url = f"http://127.0.0.1:{client_port}/api/v1/robot/message/send/image/url"
-    _http_post_json(send_url, {"to_wxid": to_wxid, "image_urls": image_urls})
+    _http_post_json(
+        send_url,
+        {"to_wxid": to_wxid, "image_urls": image_urls, "send_original": send_original},
+    )
 
 
 def main() -> int:
@@ -151,7 +148,7 @@ def main() -> int:
         return 1
 
     try:
-        raw_file_paths, raw_image_urls = _parse_cli_params(sys.argv[1:])
+        raw_file_paths, raw_image_urls, send_original = _parse_cli_params(sys.argv[1:])
         if not raw_file_paths and not raw_image_urls:
             sys.stdout.write("缺少本地图片路径或远程图片 URL\n")
             return 1
@@ -178,13 +175,13 @@ def main() -> int:
     failures: list[str] = []
     for file_path in file_paths:
         try:
-            _send_local_image(client_port, to_wxid, file_path)
+            _send_local_image(client_port, to_wxid, file_path, send_original)
         except Exception as exc:
             failures.append(f"本地图片 {file_path}: {exc}")
 
     if image_urls:
         try:
-            _send_remote_images(client_port, to_wxid, image_urls)
+            _send_remote_images(client_port, to_wxid, image_urls, send_original)
         except Exception as exc:
             failures.append(f"远程图片: {exc}")
 

@@ -26,7 +26,6 @@ except ImportError:  # pragma: no cover - Python 3.8 fallback
 sys.stderr = sys.stdout
 
 MAX_EXPORT_ROWS = 50_000
-MAX_EXCEL_FILE_SIZE = 25 * 1024 * 1024
 EXCEL_CELL_MAX_LENGTH = 32_767
 ILLEGAL_XML_CHARACTERS = re.compile(
     r"[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F-\x84\x86-\x9F]"
@@ -512,8 +511,6 @@ def _build_workbook(
     )
     try:
         workbook.save(temporary_path)
-        if temporary_path.stat().st_size > MAX_EXCEL_FILE_SIZE:
-            raise ValueError("生成的 Excel 文件超过 25MB，请缩短导出时间范围")
         temporary_path.replace(output_path)
     finally:
         temporary_path.unlink(missing_ok=True)
@@ -521,7 +518,9 @@ def _build_workbook(
 
 def _raise_for_client_error(payload: dict[str, Any]) -> None:
     code = payload.get("code")
-    if code is not None and str(code) != "200":
+    if code is None:
+        raise RuntimeError("客户端返回的发送结果无效")
+    if code != 200:
         message = str(payload.get("message") or f"客户端返回错误码 {code}")
         raise RuntimeError(message)
 
@@ -556,8 +555,6 @@ def _send_file(client_port: str, chat_room_id: str, path: Path) -> None:
     except urllib.error.URLError as exc:
         raise RuntimeError(f"发送 Excel 失败: {exc.reason}") from exc
 
-    if not response_text.strip():
-        return
     try:
         payload = json.loads(response_text)
     except json.JSONDecodeError as exc:

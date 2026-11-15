@@ -1,11 +1,13 @@
 ---
 name: send-image
-description: "发送本地或远程图片到当前微信会话。比如，其他技能产出了需要发送的本地图片路径时使用。"
+description: "将本地图片文件或远程图片链接发送到当前微信会话，支持静态原图。用户给出 GIF 路径或链接，要求发动态图或把这个 GIF 当表情发时，使用本技能。"
 ---
 
 # 发送图片
 
 使用 `scripts/send_image.py` 调用机器人客户端接口，将一个或多个本地图片文件、远程图片 URL 发送到当前微信会话。
+
+用户给出 GIF 文件路径或链接时，使用本技能。按名称发送内置表情时使用 `send-emoji`。用户明确要求发送可下载的 GIF 附件时使用 `send-file`。
 
 ## 入参
 
@@ -34,6 +36,11 @@ description: "发送本地或远程图片到当前微信会话。比如，其他
         "type": "string"
       },
       "description": "要发送的多个远程图片 URL。"
+    },
+    "send_original": {
+      "type": "boolean",
+      "default": false,
+      "description": "是否以原图发送本次请求中的静态图片。"
     }
   },
   "anyOf": [
@@ -52,6 +59,7 @@ description: "发送本地或远程图片到当前微信会话。比如，其他
 - `--file_paths <JSON数组>`：一次传入多个本地图片路径。
 - `--image_url <远程图片URL>`：可重复传入。
 - `--image_urls <JSON数组>`：一次传入多个远程图片 URL。
+- `--send_original` 请求发送静态原图，也可以显式传 `--send_original true` 或 `--send_original false`。
 
 ## 执行
 
@@ -59,6 +67,13 @@ description: "发送本地或远程图片到当前微信会话。比如，其他
 
 ```bash
 python3 scripts/send_image.py --file_path '/tmp/example.png'
+```
+
+发送静态原图或本地 GIF 的示例
+
+```bash
+python3 scripts/send_image.py --file_path '/tmp/photo.jpg' --send_original
+python3 scripts/send_image.py --file_path '/tmp/reaction.gif'
 ```
 
 发送远程图片：

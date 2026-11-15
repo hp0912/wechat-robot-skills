@@ -1760,11 +1760,18 @@ async function maybeSendScreenshot(
     return false;
   }
   const sendUrl = `http://127.0.0.1:${clientPort}/api/v1/robot/message/send/image/local`;
-  await postJson(
+  const text = await postJson(
     sendUrl,
     { to_wxid: toWxid, file_path: filePath },
     params.timeoutMs,
   );
+  const result: unknown = JSON.parse(text);
+  if (!isPlainObject(result) || typeof result.code !== "number") {
+    throw new Error("客户端返回的发送结果无效");
+  }
+  if (result.code !== 200) {
+    throw new Error(String(result.message || `客户端返回错误码 ${result.code}`));
+  }
   return true;
 }
 

@@ -12,34 +12,28 @@ from pathlib import Path
 
 sys.stderr = sys.stdout
 
-MAX_FILE_SIZE = 25 * 1024 * 1024
-
-
 def _client_private_token() -> str:
     return os.environ.get("ROBOT_CLIENT_PRIVATE_TOKEN", "").strip()
 
 
-def _raise_for_client_error(response: dict) -> None:
-    if not response:
-        return
-
-    code = response.get("code")
-    if code is not None and str(code) != "200":
-        message = str(response.get("message") or f"客户端返回错误码 {code}")
-        raise RuntimeError(message)
-
-    data = response.get("data")
-    if isinstance(data, list):
+def _raise_for_client_error(response: object, url_count: int) -> None:
+    if not isinstance(response, dict) or "code" not in response:
+        raise RuntimeError("客户端返回的发送结果无效")
+    if response["code"] != 200:
+        raise RuntimeError(response.get("message") or f"客户端返回错误码 {response['code']}")
+    if url_count:
+        results = response.get("data")
+        if not isinstance(results, list) or len(results) != url_count:
+            raise RuntimeError("客户端返回的逐项发送结果不完整")
         failures = [
-            item.strip()
-            for item in data
-            if isinstance(item, str) and item.lstrip().startswith("失败:")
+            str(item) for item in results
+            if not isinstance(item, str) or not item.startswith("成功: ")
         ]
         if failures:
             raise RuntimeError("；".join(failures))
 
 
-def _http_post_json(url: str, body: dict, timeout: int = 300) -> dict:
+def _http_post_json(url: str, body: dict, timeout: int = 300) -> None:
     data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(
         url,
@@ -51,15 +45,8 @@ def _http_post_json(url: str, body: dict, timeout: int = 300) -> dict:
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        text = resp.read().decode("utf-8")
-    if not text.strip():
-        return {}
-
-    response = json.loads(text)
-    if not isinstance(response, dict):
-        raise RuntimeError("客户端返回格式不正确")
-    _raise_for_client_error(response)
-    return response
+        response = json.load(resp)
+    _raise_for_client_error(response, len(body.get("file_urls", [])))
 
 
 def _expand_json_array_values(values: list[str], label: str) -> list[str]:
@@ -122,11 +109,8 @@ def _normalize_local_file_path(value: str) -> str:
     if not path.is_file():
         raise ValueError(f"本地文件不存在: {value}")
 
-    file_size = path.stat().st_size
-    if file_size <= 0:
+    if path.stat().st_size <= 0:
         raise ValueError(f"本地文件不能为空: {value}")
-    if file_size > MAX_FILE_SIZE:
-        raise ValueError(f"本地文件大小不能超过 25MB: {value}")
     return str(path.resolve())
 
 

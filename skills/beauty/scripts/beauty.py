@@ -65,14 +65,15 @@ def send_image(image_url: str) -> bool:
 
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
-            if 200 <= response.status < 300:
-                return True
             payload = json.load(response)
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
         return False
 
-    code = payload.get("code")
-    return code == 200 or code == 0
+    return (
+        isinstance(payload, dict)
+        and payload.get("code") == 200
+        and payload.get("data") == [f"成功: {image_url}"]
+    )
 
 
 def main() -> int:

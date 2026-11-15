@@ -66,7 +66,7 @@ def _client_private_token() -> str:
     return os.environ.get("ROBOT_CLIENT_PRIVATE_TOKEN", "").strip()
 
 
-def _http_post_json(url: str, body: dict, timeout: int = 300) -> dict:
+def _http_post_json(url: str, body: dict, timeout: int = 300) -> None:
     data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(
         url,
@@ -78,10 +78,11 @@ def _http_post_json(url: str, body: dict, timeout: int = 300) -> dict:
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        text = resp.read().decode("utf-8")
-        if not text.strip():
-            return {}
-        return json.loads(text)
+        response = json.load(resp)
+    if not isinstance(response, dict) or "code" not in response:
+        raise RuntimeError("客户端返回的发送结果无效")
+    if response["code"] != 200:
+        raise RuntimeError(response.get("message") or f"客户端返回错误码 {response['code']}")
 
 
 def _expand_json_array_values(values: list[str], label: str) -> list[str]:

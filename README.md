@@ -20,6 +20,8 @@ npm run check
 
 - ROBOT_WECHAT_CLIENT_PORT: 机器人客户端服务端口，可用于在 SKILL 脚本直接调用客户端接口 `http://127.0.0.1:{ROBOT_WECHAT_CLIENT_PORT}/api/v1/xxxxx`
 
+- `ROBOT_CLIENT_PRIVATE_TOKEN` 用于客户端接口的 `X-Private-Token` 请求头。
+
 - ROBOT_ID: 机器人实例 ID
 
 - ROBOT_CODE: 机器人实例编码
@@ -44,12 +46,14 @@ npm run check
 
 - ROBOT_REF_MESSAGE_ID: 如果是引用消息，则是引用的消息的 ID
 
-**发送图片的时候可以调用 Agent 接口**
+**发送图片和 GIF**
+
+`send-image` 支持本地和远程图片，包括 GIF。发送静态原图时传 `send_original: true`，默认值为 `false`。
 
 1. 发送远程图片地址
 
 ```
-[POST] http://127.0.0.1:{ROBOT_WECHAT_CLIENT_PORT}/api/v1//robot/message/send/image/url
+[POST] http://127.0.0.1:{ROBOT_WECHAT_CLIENT_PORT}/api/v1/robot/message/send/image/url
 
 请求体 Body:
 
@@ -63,18 +67,21 @@ npm run check
 2. 发送本地图片路径
 
 ```
-[POST] http://127.0.0.1:{ROBOT_WECHAT_CLIENT_PORT}/api/v1//robot/message/send/image/local
+[POST] http://127.0.0.1:{ROBOT_WECHAT_CLIENT_PORT}/api/v1/robot/message/send/image/local
 
 请求体 Body:
 
 {
   "to_wxid": "{{ROBOT_FROM_WX_ID}}",
-  "file_path": "{{file_path}}"
+  "file_path": "{{file_path}}",
+  "send_original": true
 }
 
 ```
 
 **发送视频的时候可以调用 Agent 接口**
+
+`video-generation` 生成视频后使用下方接口。可选的布尔字段 `send_original` 控制是否附带原片。省略时使用客户端的默认设置。
 
 ```
 [POST] http://127.0.0.1:{ROBOT_WECHAT_CLIENT_PORT}/api/v1/robot/message/send/video/url
@@ -124,6 +131,8 @@ npm run check
 
 **Agent 发送表情消息接口**
 
+`send-emoji` 按内置名称查找微信已有表情的 `Md5` 和 `TotalLen`。给定 GIF 路径或 URL 时使用上方图片接口。
+
 ```
 [POST] http://127.0.0.1:{ROBOT_WECHAT_CLIENT_PORT}/api/v1/robot/message/send/emoji
 
@@ -135,3 +144,12 @@ npm run check
   "TotalLen": 263, // 表情长度
 }
 ```
+
+**发送文件附件**
+
+`send-file` 用于发送可下载的附件，包括用户明确要求发送的 GIF 原文件。两个入口均使用 `POST`，接收方取自 `ROBOT_FROM_WX_ID`。
+
+| 来源 | 客户端接口 | JSON 请求字段 |
+| --- | --- | --- |
+| 本地文件 | `/api/v1/robot/message/send/file/local` | `to_wxid`、`file_path` |
+| 远程文件 | `/api/v1/robot/message/send/file/url` | `to_wxid`、`file_urls` 数组 |

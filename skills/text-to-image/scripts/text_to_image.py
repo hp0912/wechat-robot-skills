@@ -354,6 +354,23 @@ def _is_remote_image_url(value: str) -> bool:
     return urllib.parse.urlparse(value).scheme in {"http", "https"}
 
 
+def _raise_for_client_error(response: object, url_count: int = 0) -> None:
+    if not isinstance(response, dict) or "code" not in response:
+        raise RuntimeError("客户端返回的发送结果无效")
+    if response["code"] != 200:
+        raise RuntimeError(response.get("message") or f"客户端返回错误码 {response['code']}")
+    if url_count:
+        results = response.get("data")
+        if not isinstance(results, list) or len(results) != url_count:
+            raise RuntimeError("客户端返回的逐项发送结果不完整")
+        failures = [
+            str(item) for item in results
+            if not isinstance(item, str) or not item.startswith("成功: ")
+        ]
+        if failures:
+            raise RuntimeError("；".join(failures))
+
+
 def _send_image_outputs(client_port: str, from_wx_id: str, image_outputs: list[str]) -> None:
     remote_urls = [value for value in image_outputs if value and _is_remote_image_url(value)]
     local_paths = [value for value in image_outputs if value and not _is_remote_image_url(value)]
@@ -374,6 +391,7 @@ def _send_image_outputs(client_port: str, from_wx_id: str, image_outputs: list[s
             timeout=300,
         )
         _debug_response("send image url response", response)
+        _raise_for_client_error(response, len(remote_urls))
 
     for file_path in local_paths:
         send_url = f"http://127.0.0.1:{client_port}/api/v1/robot/message/send/image/local"
@@ -391,6 +409,7 @@ def _send_image_outputs(client_port: str, from_wx_id: str, image_outputs: list[s
             timeout=300,
         )
         _debug_response("send image local response", response)
+        _raise_for_client_error(response)
 
 
 def _cleanup_openai_temp_files(image_outputs: list[str]) -> None:

@@ -67,6 +67,10 @@ description: "AI 视频生成工具。当用户想生成视频、文生视频、
       "type": "integer",
       "description": "视频时长，单位秒，可选，默认 5。",
       "default": 5
+    },
+    "send_original": {
+      "type": "boolean",
+      "description": "发送生成的视频时是否附带原片。省略时使用客户端的默认设置。"
     }
   },
   "required": ["prompt"],
@@ -82,6 +86,7 @@ description: "AI 视频生成工具。当用户想生成视频、文生视频、
 - `--ratio <比例>` 可选
 - `--resolution <分辨率>` 可选
 - `--duration <秒数>` 可选
+- `--send_original` 或 `--send_original true` 表示附带原片，`--send_original false` 表示只发播放版本。
 
 ## 依赖安装
 
@@ -94,13 +99,13 @@ description: "AI 视频生成工具。当用户想生成视频、文生视频、
 2. 从用户输入中提取 `prompt`，不要改写提示词本身。
 3. 根据上下文可选提取 `model`、`file_paths`、`ratio`、`resolution`、`duration`。
 4. 如果用户没有明确指定模型，默认使用 `jimeng-video-3.0-fast`。
-5. 在仓库根目录执行脚本，例如：
+5. 在技能目录执行脚本，例如
 
 ```bash
 python3 scripts/video_generation.py --prompt '海边日落，镜头缓慢推进' --file_paths 'https://example.com/start.jpg'
 ```
 
-6. 脚本生成视频后会自动调用客户端接口 `POST http://127.0.0.1:{ROBOT_WECHAT_CLIENT_PORT}/api/v1/robot/message/send/video/url` 将视频发送给用户，成功时输出「ended」。
+6. 脚本生成视频后调用 `POST /api/v1/robot/message/send/video/url`。`send_original` 只影响发送阶段。所有视频都收到成功回执后输出 `ended`，其中一条失败就返回具体原因。
 
 ## 校验规则
 
