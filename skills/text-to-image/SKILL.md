@@ -1,6 +1,6 @@
 ---
 name: text-to-image
-description: "AI绘图工具，当用户想通过文本生成图像时，可以调用该工具。根据用户输入内容提取画图提示词，选择合适的模型进行绘图，返回生成的图片。"
+description: "AI绘图工具，当用户想通过文本生成图像时，可以调用该工具。根据用户输入内容提取画图提示词，选择合适的模型进行绘图，返回生成的图片(支持生成 GIF 格式图片)。"
 metadata:
   concurrency_policy: parallel_safe
 ---
