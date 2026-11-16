@@ -38,7 +38,7 @@ OpenAI 默认模型为 `gpt-image-2.5-flare`；用户指定 OpenAI 但未指定�
     },
     "model": {
       "type": "string",
-      "description": "画图模型选择（可选）：即梦4.5(jimeng-4.5) / 即梦4.6(jimeng-4.6) / 即梦4.7(jimeng-4.7) / 即梦5.0(jimeng-5.0) / 即梦5.0 Pro(jimeng-5.0-pro) / 豆包5.0 Pro(doubao-seedream-5-0-pro) / 豆包5.0 Lite(doubao-seedream-5-0) / 豆包4.5(doubao-seedream-4.5) / 豆包4.0(doubao-seedream-4.0) / 豆包文生图(doubao-seedream-3.0-t2i) / 豆包图生图(doubao-seededit-3.0-i2i) / 造相基础版(Z-Image) / 造相蒸馏版(Z-Image-Turbo) / 造相图片编辑(Qwen-Image-Edit-2511) / OpenAI gpt-image-2(gpt-image-2) / OpenAI gpt-image-2.5(gpt-image-2.5-flare) / OpenAI gpt-image-2.5 Pro(gpt-image-2.5-sunburst)，默认: 空(none)。",
+      "description": "画图模型选择（可选）：即梦4.5(jimeng-4.5) / 即梦4.6(jimeng-4.6) / 即梦4.7(jimeng-4.7) / 即梦5.0(jimeng-5.0) / 即梦5.0 Pro(jimeng-5.0-pro) / 豆包5.0 Pro(doubao-seedream-5-0-pro) / 豆包5.0 Lite(doubao-seedream-5-0) / 豆包4.5(doubao-seedream-4.5) / 豆包4.0(doubao-seedream-4.0) / 豆包文生图(doubao-seedream-3.0-t2i) / 豆包图生图(doubao-seededit-3.0-i2i) / 造相基础版(Z-Image) / 造相蒸馏版(Z-Image-Turbo) / 造相图片编辑(Qwen-Image-Edit-2511) / OpenAI gpt-image-2.6(gpt-image-2.6-flare) / OpenAI gpt-image-2.6 Pro(gpt-image-2.6-sunburst)，默认: 空(none)。",
       "enum": [
         "none",
         "jimeng-4.5",
@@ -55,9 +55,8 @@ OpenAI 默认模型为 `gpt-image-2.5-flare`；用户指定 OpenAI 但未指定�
         "Z-Image",
         "Z-Image-Turbo",
         "Qwen-Image-Edit-2511",
-        "gpt-image-2",
-        "gpt-image-2.5-flare",
-        "gpt-image-2.5-sunburst"
+        "gpt-image-2.6-flare",
+        "gpt-image-2.6-sunburst"
       ],
       "default": "none"
     },
